@@ -799,13 +799,13 @@ def render_full_statistics(df, fail_df):
 
 
 # ==============================================================================
-# 📁 메뉴 4: 데이터 업로드 (UX 개선 - 팝업 + 초기화)
+# 📁 메뉴 4: 데이터 업로드 (선택 삭제 + 팝업 UX)
 # ==============================================================================
 def render_data_upload():
     st.markdown("### 📁 주간 체크리스트 업로드")
     st.caption("회사 SQA 시스템에서 받은 엑셀(.xlsx) 또는 CSV 파일을 업로드하면 자동으로 분석 데이터에 추가됩니다.")
     
-    # 현재 데이터 상태 (요약만)
+    # 현재 데이터 상태
     base_df = load_base_data()
     current_total = len(base_df) + sum(len(d) for d in st.session_state.uploaded_data)
     
@@ -827,18 +827,18 @@ def render_data_upload():
             st.balloons()
         elif result['status'] == 'error':
             st.error(f"❌ **업로드 실패** — {result['message']}")
-        # 한 번 표시 후 삭제
+        elif result['status'] == 'delete':
+            st.success(f"🗑️ **삭제 완료** — {result['message']}")
         st.session_state.upload_result = None
     
     # 업로드 이력 추적용 세션
     if 'uploaded_files_info' not in st.session_state:
         st.session_state.uploaded_files_info = []
     
-    # ===== 파일 업로드 =====
-    # uploader_key를 사용해서 초기화 가능하게
     if 'uploader_key' not in st.session_state:
         st.session_state.uploader_key = 0
     
+    # ===== 파일 업로드 =====
     uploaded_file = st.file_uploader(
         "📤 파일 선택 (xlsx, csv)",
         type=['xlsx', 'csv'],
@@ -847,7 +847,6 @@ def render_data_upload():
     )
     
     if uploaded_file is not None:
-        # ===== 검증 및 추가 (백그라운드) =====
         try:
             # 파일 읽기
             if uploaded_file.name.endswith('.csv'):
@@ -859,7 +858,6 @@ def render_data_upload():
             required_cols = ['IC', 'Model', 'Build_Num', 'Result', 'Test_Item', 'Keyword']
             missing = [c for c in required_cols if c not in new_df.columns]
             if missing:
-                # 실패 → 팝업 메시지 저장 → 화면 초기화
                 st.session_state.upload_result = {
                     'status': 'error',
                     'message': f"필수 컬럼 누락: {', '.join(missing)}"
@@ -876,9 +874,9 @@ def render_data_upload():
                 new_df['Model_Minor'] = new_df['Model_Minor'].astype(str).str.zfill(2)
             new_df['Keyword'] = new_df['Keyword'].fillna('')
             
-            # ===== 중복 검사 (백그라운드) =====
+            # ===== 중복 검사 =====
             
-            # [1] 같은 파일 (파일명 + 행 수)
+            # [1] 같은 파일
             file_signature = (uploaded_file.name, len(new_df))
             already_uploaded_files = [
                 (info['filename'], info['n_rows']) 
@@ -887,7 +885,7 @@ def render_data_upload():
             if file_signature in already_uploaded_files:
                 st.session_state.upload_result = {
                     'status': 'error',
-                    'message': f"'{uploaded_file.name}' ({len(new_df)}건)은 이미 업로드된 파일입니다. 같은 파일을 두 번 업로드할 수 없습니다."
+                    'message': f"'{uploaded_file.name}' ({len(new_df)}건)은 이미 업로드된 파일입니다."
                 }
                 st.session_state.uploader_key += 1
                 st.rerun()
@@ -907,12 +905,12 @@ def render_data_upload():
                     extra = f" 등 총 {len(overlap_nos)}건" if len(overlap_nos) > 5 else ""
                     st.session_state.upload_result = {
                         'status': 'error',
-                        'message': f"No 컬럼 중복 — 이미 존재하는 번호: {sample_str}{extra}. 새 No로 업데이트된 파일을 업로드해주세요."
+                        'message': f"No 컬럼 중복 — 이미 존재하는 번호: {sample_str}{extra}"
                     }
                     st.session_state.uploader_key += 1
                     st.rerun()
             
-            # [3] 행 단위 중복 (50% 이상이면 차단)
+            # [3] 행 단위 중복
             check_cols = ['Build_Num', 'Model', 'Test_Item', 'Result']
             if all(c in new_df.columns for c in check_cols):
                 all_existing = pd.concat([base_df] + st.session_state.uploaded_data, ignore_index=True) \
@@ -927,12 +925,12 @@ def render_data_upload():
                 if overlap_rate >= 50:
                     st.session_state.upload_result = {
                         'status': 'error',
-                        'message': f"데이터 중복 — {n_overlap}건 ({overlap_rate:.1f}%)이 기존 데이터와 동일합니다. 50% 이상 중복되어 차단됩니다."
+                        'message': f"데이터 중복 — {n_overlap}건 ({overlap_rate:.1f}%)이 기존 데이터와 동일합니다."
                     }
                     st.session_state.uploader_key += 1
                     st.rerun()
             
-            # ===== 검증 통과 → 자동 추가 =====
+            # 통과 → 추가
             no_set = set(new_df['No'].dropna().astype(int).tolist()) if 'No' in new_df.columns else set()
             st.session_state.uploaded_files_info.append({
                 'filename': uploaded_file.name,
@@ -943,7 +941,6 @@ def render_data_upload():
             st.session_state.uploaded_data.append(new_df)
             st.session_state.data_version += 1
             
-            # 신규 빌드 정보 포함
             new_builds = sorted(new_df['Build_Num'].unique())
             existing_builds = sorted(base_df['Build_Num'].unique())
             truly_new_builds = [b for b in new_builds if b not in existing_builds]
@@ -955,7 +952,6 @@ def render_data_upload():
             if truly_new_builds:
                 success_msg += f"  🆕 신규 빌드: {truly_new_builds}"
             
-            # 성공 메시지 저장 → 화면 초기화
             st.session_state.upload_result = {
                 'status': 'success',
                 'message': success_msg
@@ -964,7 +960,6 @@ def render_data_upload():
             st.rerun()
         
         except Exception as e:
-            # 예외 → 팝업으로 사유 표시
             st.session_state.upload_result = {
                 'status': 'error',
                 'message': f"파일 처리 중 오류 발생: {str(e)}"
@@ -972,19 +967,86 @@ def render_data_upload():
             st.session_state.uploader_key += 1
             st.rerun()
     
-    # ===== 업로드 이력 (선택적 표시) =====
+    # ===== 📜 업로드 이력 (체크박스 + 선택 삭제) =====
     if st.session_state.uploaded_files_info:
         st.markdown("---")
         st.markdown("#### 📜 업로드 이력")
-        for i, info in enumerate(st.session_state.uploaded_files_info, 1):
-            st.markdown(f"**{i}.** `{info['filename']}` — {info['n_rows']:,}건 · {info['uploaded_at']}")
+        st.caption("체크박스로 삭제할 파일을 선택할 수 있습니다.")
         
-        if st.button("🗑️ 추가된 데이터 모두 초기화", use_container_width=True):
-            st.session_state.uploaded_data = []
-            st.session_state.uploaded_files_info = []
-            st.session_state.data_version += 1
-            st.session_state.uploader_key += 1
-            st.rerun()
+        # 각 파일에 대한 체크박스 (세션에 선택 상태 저장)
+        if 'delete_selection' not in st.session_state or \
+           len(st.session_state.delete_selection) != len(st.session_state.uploaded_files_info):
+            st.session_state.delete_selection = [False] * len(st.session_state.uploaded_files_info)
+        
+        # 헤더
+        col_h1, col_h2, col_h3, col_h4 = st.columns([0.7, 3, 1.5, 2])
+        with col_h1:
+            st.markdown("**선택**")
+        with col_h2:
+            st.markdown("**파일명**")
+        with col_h3:
+            st.markdown("**건수**")
+        with col_h4:
+            st.markdown("**업로드 시각**")
+        
+        # 각 항목 표시
+        for i, info in enumerate(st.session_state.uploaded_files_info):
+            col1, col2, col3, col4 = st.columns([0.7, 3, 1.5, 2])
+            with col1:
+                checked = st.checkbox(
+                    f"선택 {i+1}",
+                    key=f"file_check_{i}_{st.session_state.uploader_key}",
+                    value=st.session_state.delete_selection[i],
+                    label_visibility="collapsed"
+                )
+                st.session_state.delete_selection[i] = checked
+            with col2:
+                st.markdown(f"`{info['filename']}`")
+            with col3:
+                st.markdown(f"{info['n_rows']:,}건")
+            with col4:
+                st.markdown(info['uploaded_at'])
+        
+        st.markdown("")
+        
+        # 선택된 개수
+        n_selected = sum(st.session_state.delete_selection)
+        n_total = len(st.session_state.uploaded_files_info)
+        
+        # 액션 버튼 2개
+        btn_col1, btn_col2 = st.columns(2)
+        
+        with btn_col1:
+            if st.button("☑️ 전체 선택", use_container_width=True):
+                st.session_state.delete_selection = [True] * n_total
+                st.rerun()
+        
+        with btn_col2:
+            disabled = n_selected == 0
+            label = f"🗑️ 선택 삭제 ({n_selected}개)" if n_selected > 0 else "🗑️ 선택 삭제 (0개)"
+            if st.button(label, type="primary" if not disabled else "secondary",
+                         use_container_width=True, disabled=disabled):
+                # 선택된 파일들의 인덱스 (역순으로 정렬해서 삭제)
+                indices_to_delete = sorted(
+                    [i for i, sel in enumerate(st.session_state.delete_selection) if sel],
+                    reverse=True
+                )
+                deleted_names = []
+                deleted_count = 0
+                for idx in indices_to_delete:
+                    deleted_names.append(st.session_state.uploaded_files_info[idx]['filename'])
+                    deleted_count += st.session_state.uploaded_files_info[idx]['n_rows']
+                    del st.session_state.uploaded_files_info[idx]
+                    del st.session_state.uploaded_data[idx]
+                    del st.session_state.delete_selection[idx]
+                
+                st.session_state.data_version += 1
+                st.session_state.uploader_key += 1
+                st.session_state.upload_result = {
+                    'status': 'delete',
+                    'message': f"{len(deleted_names)}개 파일 ({deleted_count}건) 삭제됨: {', '.join(deleted_names[:3])}{'...' if len(deleted_names) > 3 else ''}"
+                }
+                st.rerun()
 
 
 # ==============================================================================
