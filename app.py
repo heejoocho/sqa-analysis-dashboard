@@ -592,14 +592,64 @@ def render_full_insights(df, fail_df):
 # 📈 메뉴: Fail율 예측 (시계열 회귀)
 # ==============================================================================
 def render_fail_rate_prediction(df, fail_df):
-    """다음 빌드 Fail율 예측 — 선형 회귀 기반"""
+    """다음 빌드 Fail율 예측 — 선형 회귀 기반 (IC/Customer 필터 지원)"""
     plt.rcParams['font.family'] = font_name
     
     st.markdown("### 📈 다음 빌드 Fail율 예측")
-    st.caption("sklearn 선형 회귀로 과거 빌드 추이를 학습해 미래 Fail율을 예측합니다.")
+    st.caption("sklearn 선형 회귀로 과거 빌드 추이를 학습해 미래 Fail율을 예측합니다. IC/Customer/Category별 그룹 예측 가능.")
     
-    # ===== 빌드별 Fail율 추출 =====
-    build_summary = df.groupby('Build_Num').agg(
+    # ===== 예측 대상 필터 =====
+    st.markdown("#### 🎯 예측 대상 선택")
+    st.caption("특정 그룹의 Fail율 추세만 분석할 수 있습니다.")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        ic_filter = st.selectbox(
+            "🔌 IC",
+            options=["전체"] + sorted(df['IC'].unique().tolist()),
+            key='pred_ic_filter'
+        )
+    with col2:
+        customer_filter = st.selectbox(
+            "🏢 Customer",
+            options=["전체"] + sorted(df['Customer'].unique().tolist()),
+            key='pred_customer_filter'
+        )
+    with col3:
+        category_filter = st.selectbox(
+            "📁 Category",
+            options=["전체"] + sorted(df['Category'].unique().tolist()),
+            key='pred_category_filter'
+        )
+    
+    # 필터 적용
+    filtered_df = df.copy()
+    active_filters = []
+    if ic_filter != "전체":
+        filtered_df = filtered_df[filtered_df['IC'] == ic_filter]
+        active_filters.append(f"IC={ic_filter}")
+    if customer_filter != "전체":
+        filtered_df = filtered_df[filtered_df['Customer'] == customer_filter]
+        active_filters.append(f"Customer={customer_filter}")
+    if category_filter != "전체":
+        filtered_df = filtered_df[filtered_df['Category'] == category_filter]
+        active_filters.append(f"Category={category_filter}")
+    
+    # 필터 표시
+    if active_filters:
+        st.info(f"🎯 분석 대상: `{' · '.join(active_filters)}` ({len(filtered_df):,}건)")
+    else:
+        st.info(f"🎯 분석 대상: `전체 데이터` ({len(filtered_df):,}건)")
+    
+    # 데이터 부족 체크
+    if len(filtered_df) < 100:
+        st.warning(f"⚠️ 데이터가 너무 적습니다 ({len(filtered_df)}건). 필터를 완화해주세요.")
+        return
+    
+    st.markdown("---")
+    
+    # ===== 빌드별 Fail율 추출 (필터 적용) =====
+    build_summary = filtered_df.groupby('Build_Num').agg(
         total=('Result', 'count'),
         fail=('Result', lambda x: (x == 'FAIL').sum())
     ).reset_index()
@@ -746,7 +796,8 @@ def render_fail_rate_prediction(df, fail_df):
     
     ax.set_xlabel('빌드 번호', fontsize=12, fontweight='bold')
     ax.set_ylabel('Fail율 (%)', fontsize=12, fontweight='bold')
-    ax.set_title(f'Fail율 추세 + 다음 빌드 예측 (선형 회귀, 최근 {n_recent}개 학습)',
+    filter_label = ' · '.join(active_filters) if active_filters else "전체"
+    ax.set_title(f'Fail율 추세 + 다음 빌드 예측  ({filter_label})',
                  fontsize=13, fontweight='bold', pad=15)
     ax.grid(True, alpha=0.3)
     ax.legend(loc='best', fontsize=10)
