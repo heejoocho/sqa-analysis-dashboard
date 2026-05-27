@@ -589,7 +589,7 @@ def render_full_insights(df, fail_df):
 
 
 # ==============================================================================
-# 📈 메뉴: Fail율 예측 (전문가급 - 다항회귀 + 가중치 + 신뢰구간 + 교차검증)
+# 📈 메뉴: Fail율 예측
 # ==============================================================================
 def render_fail_rate_prediction(df, fail_df):
     """다음 빌드 Fail율 예측"""
@@ -601,7 +601,7 @@ def render_fail_rate_prediction(df, fail_df):
     from sklearn.metrics import mean_absolute_error
     
     st.markdown("### 📈 다음 빌드 Fail율 예측")
-    st.caption("표본 가중치 + 다항회귀 + 95% 신뢰구간 + 교차검증으로 정확도와 불확실성을 함께 제공합니다.")
+    st.caption("과거 빌드 데이터를 학습해 다음 빌드의 Fail율을 예측하고 신뢰구간을 함께 제공합니다.")
     
     # ===== 예측 대상 필터 =====
     st.markdown("#### 🎯 예측 대상 선택")
@@ -2231,8 +2231,8 @@ elif menu == "📈 전체 통계":
     render_full_statistics(df, fail_df)
 
 elif menu == "📈 Fail율 예측":
-    st.markdown("## 📈 Fail율 예측 (전문가급 통계 모델)")
-    st.markdown("**다항회귀 + 표본 가중치 + 95% 신뢰구간 + Leave-One-Out 교차검증**")
+    st.markdown("## 📈 Fail율 예측")
+    st.markdown("**과거 빌드 추이를 학습해 다음 빌드의 Fail율을 예측합니다**")
     st.markdown("---")
     render_fail_rate_prediction(df, fail_df)
 
