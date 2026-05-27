@@ -603,19 +603,21 @@ def render_advanced_statistics(df, fail_df):
     st.markdown("### 1️⃣ 카이제곱 독립성 검정 (Chi-square Test)")
     st.caption("두 범주형 변수가 통계적으로 유의미한 관계가 있는지 검정합니다.")
     
-    # 추천 분석 시나리오 콤보
+    # 추천 분석 시나리오 콤보 (의미 있는 조합만)
     scenario = st.selectbox(
         "🎯 분석 시나리오 선택",
         options=[
             "IC × Keyword (IC별 Fail 패턴 분석) ⭐ 추천",
             "Customer × Keyword (고객사별 결함 패턴)",
             "Category × Keyword (테스트 카테고리별 결함)",
+            "Test_Item × Keyword (테스트 항목별 결함)",
+            "Model × Keyword (모델별 결함 패턴)",
             "IC × Result (IC별 합격률 비교)",
             "Customer × Result (고객사별 합격률 비교)",
-            "직접 선택 (변수를 따로 고르기)",
+            "Category × Result (카테고리별 합격률)",
         ],
         key='chi_scenario',
-        help="의미 있는 분석 조합을 미리 준비했습니다. 추천부터 시작해보세요."
+        help="의미 있는 분석 조합을 미리 준비했습니다."
     )
     
     # 시나리오 → 변수 자동 매핑
@@ -623,35 +625,21 @@ def render_advanced_statistics(df, fail_df):
         "IC × Keyword (IC별 Fail 패턴 분석) ⭐ 추천": ('IC', 'Keyword'),
         "Customer × Keyword (고객사별 결함 패턴)": ('Customer', 'Keyword'),
         "Category × Keyword (테스트 카테고리별 결함)": ('Category', 'Keyword'),
+        "Test_Item × Keyword (테스트 항목별 결함)": ('Test_Item', 'Keyword'),
+        "Model × Keyword (모델별 결함 패턴)": ('Model', 'Keyword'),
         "IC × Result (IC별 합격률 비교)": ('IC', 'Result'),
         "Customer × Result (고객사별 합격률 비교)": ('Customer', 'Result'),
+        "Category × Result (카테고리별 합격률)": ('Category', 'Result'),
     }
     
-    if scenario in scenario_map:
-        cat_var1, cat_var2 = scenario_map[scenario]
-        # 정보 표시
-        col_info1, col_info2 = st.columns(2)
-        with col_info1:
-            st.info(f"📊 **변수 1**: `{cat_var1}`")
-        with col_info2:
-            st.info(f"📊 **변수 2**: `{cat_var2}`")
-    else:
-        # 직접 선택 모드
-        col1, col2 = st.columns(2)
-        with col1:
-            cat_var1 = st.selectbox(
-                "변수 1",
-                ['IC', 'Customer', 'Category', 'Model', 'Test_Item'],
-                index=0,
-                key='chi_var1'
-            )
-        with col2:
-            cat_var2 = st.selectbox(
-                "변수 2",
-                ['Keyword', 'Result', 'Category', 'Test_Item'],
-                index=0,
-                key='chi_var2'
-            )
+    cat_var1, cat_var2 = scenario_map[scenario]
+    
+    # 변수 정보 표시
+    col_info1, col_info2 = st.columns(2)
+    with col_info1:
+        st.info(f"📊 **변수 1**: `{cat_var1}`")
+    with col_info2:
+        st.info(f"📊 **변수 2**: `{cat_var2}`")
     
     if cat_var1 != cat_var2:
         try:
