@@ -592,7 +592,7 @@ def render_full_insights(df, fail_df):
 # 📈 메뉴: Fail율 예측 (전문가급 - 다항회귀 + 가중치 + 신뢰구간 + 교차검증)
 # ==============================================================================
 def render_fail_rate_prediction(df, fail_df):
-    """다음 빌드 Fail율 예측 — 전문가급 통계 모델"""
+    """다음 빌드 Fail율 예측"""
     plt.rcParams['font.family'] = font_name
     
     from sklearn.preprocessing import PolynomialFeatures
