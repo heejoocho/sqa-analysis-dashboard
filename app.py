@@ -572,13 +572,240 @@ def render_regression_alert(df, fail_df):
 
 
 # ==============================================================================
-# 📁 메뉴 4: 데이터 업로드 (중복 차단 강화)
+# 📈 메뉴 새로 추가: 전체 통계
+# ==============================================================================
+def render_full_statistics(df, fail_df):
+    """전체 데이터 통계 - 월별, Customer, Test_Item 매트릭스, 메타 정보"""
+    plt.rcParams['font.family'] = font_name
+    
+    # ===== 종합 KPI =====
+    st.markdown("### 🎯 종합 KPI")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("📋 전체 테스트", f"{len(df):,}건")
+    with col2:
+        fail_rate = len(fail_df) / len(df) * 100 if len(df) > 0 else 0
+        st.metric("❌ Fail율", f"{fail_rate:.1f}%", f"{len(fail_df):,}건")
+    with col3:
+        st.metric("💻 모델 수", f"{df['Model'].nunique()}개")
+    with col4:
+        st.metric("🔄 빌드 수", f"{df['Build_Num'].nunique()}개")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("🔌 IC 종류", f"{df['IC'].nunique()}종")
+    with col2:
+        st.metric("🏢 고객사", f"{df['Customer'].nunique()}개")
+    with col3:
+        st.metric("🧪 Test_Item", f"{df['Test_Item'].nunique()}종")
+    with col4:
+        st.metric("📁 카테고리", f"{df['Category'].nunique()}개")
+    
+    st.markdown("---")
+    
+    # ===== 1. 월별 테스트 추이 =====
+    st.markdown("### 📅 1. 월별 테스트 추이")
+    st.caption("시간 흐름에 따른 테스트량과 Fail율 변화")
+    
+    df_dated = df.copy()
+    df_dated['Test_Date'] = pd.to_datetime(df_dated['Test_Date'], errors='coerce')
+    df_dated = df_dated.dropna(subset=['Test_Date'])
+    df_dated['year_month'] = df_dated['Test_Date'].dt.to_period('M').astype(str)
+    
+    monthly = df_dated.groupby('year_month').agg(
+        total=('Result', 'count'),
+        fail=('Result', lambda x: (x == 'FAIL').sum())
+    ).reset_index()
+    monthly['fail_rate'] = (monthly['fail'] / monthly['total'] * 100).round(1)
+    
+    fig, ax1 = plt.subplots(figsize=(14, 5))
+    
+    # 막대: 테스트 건수
+    bars = ax1.bar(monthly['year_month'], monthly['total'],
+                    color='#3498db', alpha=0.6, label='테스트 건수')
+    ax1.set_xlabel('월', fontsize=11)
+    ax1.set_ylabel('테스트 건수', fontsize=11, color='#3498db')
+    ax1.tick_params(axis='y', labelcolor='#3498db')
+    ax1.tick_params(axis='x', rotation=45)
+    
+    for bar, val in zip(bars, monthly['total']):
+        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 20,
+                 f'{val}', ha='center', fontsize=9, color='#3498db')
+    
+    # 라인: Fail율
+    ax2 = ax1.twinx()
+    ax2.plot(monthly['year_month'], monthly['fail_rate'],
+             marker='o', markersize=8, linewidth=2, color='#e74c3c', label='Fail율 (%)')
+    ax2.set_ylabel('Fail율 (%)', fontsize=11, color='#e74c3c')
+    ax2.tick_params(axis='y', labelcolor='#e74c3c')
+    ax2.set_ylim(0, max(monthly['fail_rate']) * 1.3)
+    
+    for i, val in enumerate(monthly['fail_rate']):
+        ax2.text(i, val + 1, f'{val}%', ha='center', fontsize=9, color='#e74c3c', fontweight='bold')
+    
+    ax1.set_title('월별 테스트 건수 + Fail율 추이', fontsize=14, fontweight='bold')
+    ax1.grid(True, alpha=0.3)
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+    
+    # 표
+    monthly_display = monthly.copy()
+    monthly_display.columns = ['월', '전체', 'Fail', 'Fail율(%)']
+    st.dataframe(monthly_display, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    
+    # ===== 2. Customer (고객사) 분석 =====
+    st.markdown("### 🏢 2. 고객사별 분석")
+    st.caption("어떤 고객사가 어떤 IC를 어떻게 테스트하는지")
+    
+    col_left, col_right = st.columns(2)
+    
+    with col_left:
+        st.markdown("##### 고객사별 테스트 건수 및 Fail율")
+        cust = df.groupby('Customer').agg(
+            total=('Result', 'count'),
+            fail=('Result', lambda x: (x == 'FAIL').sum())
+        ).reset_index()
+        cust['fail_rate'] = (cust['fail'] / cust['total'] * 100).round(1)
+        cust = cust.sort_values('total', ascending=False)
+        
+        fig, ax = plt.subplots(figsize=(8, 5))
+        bars = ax.barh(cust['Customer'], cust['total'],
+                       color=plt.cm.Set2(np.linspace(0, 1, len(cust))))
+        for bar, t, fr in zip(bars, cust['total'], cust['fail_rate']):
+            ax.text(bar.get_width() + max(cust['total']) * 0.01,
+                    bar.get_y() + bar.get_height()/2,
+                    f'{t}건 ({fr}%)', va='center', fontsize=9, fontweight='bold')
+        ax.set_xlabel('테스트 건수')
+        ax.invert_yaxis()
+        ax.set_title('고객사별 테스트 분포', fontsize=12, fontweight='bold')
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+    
+    with col_right:
+        st.markdown("##### IC × 고객사 매트릭스")
+        ic_cust = df.groupby(['IC', 'Customer']).size().unstack(fill_value=0)
+        
+        fig, ax = plt.subplots(figsize=(8, 5))
+        sns.heatmap(ic_cust, annot=True, fmt='d', cmap='Blues',
+                    cbar_kws={'label': '테스트 건수'}, ax=ax,
+                    linewidths=0.5, linecolor='white')
+        ax.set_title('IC × 고객사 분포', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Customer')
+        ax.set_ylabel('IC')
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+    
+    st.markdown("---")
+    
+    # ===== 3. Test_Item × Fail_Type 매트릭스 =====
+    st.markdown("### 🧪 3. Test_Item × Fail_Type 매트릭스")
+    st.caption("어떤 테스트 항목에서 어떤 결함이 자주 발생하는지")
+    
+    if len(fail_df) > 0:
+        # Top 15 Test_Item × Fail_Type
+        top_items = fail_df['Test_Item'].value_counts().head(15).index.tolist()
+        filtered = fail_df[fail_df['Test_Item'].isin(top_items)]
+        
+        item_kw = filtered.pivot_table(
+            index='Test_Item', columns='Keyword', values='No',
+            aggfunc='count', fill_value=0
+        )
+        item_kw = item_kw.loc[top_items]  # 순서 유지
+        item_kw = item_kw[[k for k in KEYWORDS_ALL if k in item_kw.columns]]
+        
+        fig, ax = plt.subplots(figsize=(14, max(6, len(item_kw) * 0.4)))
+        sns.heatmap(item_kw, annot=True, fmt='d', cmap='YlOrRd',
+                    cbar_kws={'label': 'Fail 건수'}, ax=ax,
+                    linewidths=0.5, linecolor='white')
+        ax.set_title('Test_Item (TOP 15) × Fail_Type 매트릭스',
+                     fontsize=14, fontweight='bold', pad=15)
+        ax.set_xlabel('Fail_Type')
+        ax.set_ylabel('Test_Item')
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+        
+        st.info("💡 **활용**: 매트릭스의 진한 칸을 보면 어떤 테스트 항목이 어떤 결함에 취약한지 즉시 파악 가능합니다.")
+    
+    st.markdown("---")
+    
+    # ===== 4. 빌드 출시 정보 =====
+    st.markdown("### 🔄 4. 빌드 출시 정보")
+    st.caption("각 빌드별 테스트량과 평균 Fail율")
+    
+    build_info = df.groupby('Build_Num').agg(
+        total=('Result', 'count'),
+        fail=('Result', lambda x: (x == 'FAIL').sum()),
+        n_models=('Model', 'nunique'),
+        n_ics=('IC', 'nunique')
+    ).reset_index()
+    build_info['fail_rate'] = (build_info['fail'] / build_info['total'] * 100).round(1)
+    build_info.columns = ['빌드', '전체 Test', 'Fail', '모델 수', 'IC 수', 'Fail율(%)']
+    
+    st.dataframe(build_info, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    
+    # ===== 5. 데이터 메타 정보 =====
+    st.markdown("### 📋 5. 데이터 메타 정보")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("##### 📅 수집 기간")
+        if len(df_dated) > 0:
+            min_date = df_dated['Test_Date'].min()
+            max_date = df_dated['Test_Date'].max()
+            duration = (max_date - min_date).days
+            st.markdown(f"""
+            - **시작**: {min_date.strftime('%Y-%m-%d')}
+            - **종료**: {max_date.strftime('%Y-%m-%d')}
+            - **기간**: 약 {duration}일 ({duration//30}개월)
+            - **수집 월**: {df_dated['year_month'].nunique()}개월
+            """)
+    
+    with col2:
+        st.markdown("##### 🔌 IC 종류")
+        for ic in sorted(df['IC'].unique()):
+            ic_data = df[df['IC'] == ic]
+            ic_fail = ic_data[ic_data['Result'] == 'FAIL']
+            top_kw = ic_fail['Keyword'].value_counts().head(1)
+            top_text = f"{top_kw.index[0]} ({top_kw.iloc[0]}건)" if len(top_kw) > 0 else "Fail 없음"
+            st.markdown(f"- **{ic}**: {len(ic_data):,}건 · Top Fail: {top_text}")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("##### 📊 결과 분포")
+        result_counts = df['Result'].value_counts()
+        for r, c in result_counts.items():
+            pct = c / len(df) * 100
+            st.markdown(f"- **{r}**: {c:,}건 ({pct:.1f}%)")
+    
+    with col2:
+        st.markdown("##### 🐛 주요 Fail_Type")
+        top_kw = fail_df['Keyword'].value_counts().head(5)
+        for kw, c in top_kw.items():
+            priority = KEYWORD_DOMAIN_MAP.get(kw, {}).get('priority', '?')
+            color_map = {'CRITICAL': '🔴', 'HIGH': '🟠', 'MID': '🟡'}
+            icon = color_map.get(priority, '⚪')
+            st.markdown(f"- {icon} **{kw}**: {c}건 ({priority})")
+
+
+
+
+# ==============================================================================
+# 📁 메뉴 4: 데이터 업로드 (UX 개선 - 팝업 + 초기화)
 # ==============================================================================
 def render_data_upload():
     st.markdown("### 📁 주간 체크리스트 업로드")
     st.caption("회사 SQA 시스템에서 받은 엑셀(.xlsx) 또는 CSV 파일을 업로드하면 자동으로 분석 데이터에 추가됩니다.")
     
-    # 현재 데이터 상태
+    # 현재 데이터 상태 (요약만)
     base_df = load_base_data()
     current_total = len(base_df) + sum(len(d) for d in st.session_state.uploaded_data)
     
@@ -592,18 +819,35 @@ def render_data_upload():
     
     st.markdown("---")
     
+    # 이전 결과 팝업 표시 (한 번만)
+    if 'upload_result' in st.session_state and st.session_state.upload_result:
+        result = st.session_state.upload_result
+        if result['status'] == 'success':
+            st.success(f"✅ **업로드 성공** — {result['message']}")
+            st.balloons()
+        elif result['status'] == 'error':
+            st.error(f"❌ **업로드 실패** — {result['message']}")
+        # 한 번 표시 후 삭제
+        st.session_state.upload_result = None
+    
     # 업로드 이력 추적용 세션
     if 'uploaded_files_info' not in st.session_state:
-        st.session_state.uploaded_files_info = []  # [(filename, n_rows, no_set), ...]
+        st.session_state.uploaded_files_info = []
     
-    # 파일 업로드
+    # ===== 파일 업로드 =====
+    # uploader_key를 사용해서 초기화 가능하게
+    if 'uploader_key' not in st.session_state:
+        st.session_state.uploader_key = 0
+    
     uploaded_file = st.file_uploader(
         "📤 파일 선택 (xlsx, csv)",
         type=['xlsx', 'csv'],
-        help="컬럼 형식: 기본 CSV와 동일 (No, IC, Model, Build_Num, Result, Keyword 등)"
+        help="컬럼 형식: 기본 CSV와 동일 (No, IC, Model, Build_Num, Result, Keyword 등)",
+        key=f"file_uploader_{st.session_state.uploader_key}"
     )
     
     if uploaded_file is not None:
+        # ===== 검증 및 추가 (백그라운드) =====
         try:
             # 파일 읽기
             if uploaded_file.name.endswith('.csv'):
@@ -611,14 +855,17 @@ def render_data_upload():
             else:
                 new_df = pd.read_excel(uploaded_file)
             
-            st.success(f"✅ 파일 인식 완료: **{uploaded_file.name}** ({len(new_df)}건)")
-            
             # 필수 컬럼 체크
             required_cols = ['IC', 'Model', 'Build_Num', 'Result', 'Test_Item', 'Keyword']
             missing = [c for c in required_cols if c not in new_df.columns]
             if missing:
-                st.error(f"⚠️ 필수 컬럼 누락: {missing}")
-                return
+                # 실패 → 팝업 메시지 저장 → 화면 초기화
+                st.session_state.upload_result = {
+                    'status': 'error',
+                    'message': f"필수 컬럼 누락: {', '.join(missing)}"
+                }
+                st.session_state.uploader_key += 1
+                st.rerun()
             
             # 데이터 전처리
             if 'Test_Date' in new_df.columns:
@@ -629,31 +876,25 @@ def render_data_upload():
                 new_df['Model_Minor'] = new_df['Model_Minor'].astype(str).str.zfill(2)
             new_df['Keyword'] = new_df['Keyword'].fillna('')
             
-            # ===== 🛑 중복 검사 시작 =====
-            st.markdown("---")
-            st.markdown("#### 🔍 중복 검사 결과")
+            # ===== 중복 검사 (백그라운드) =====
             
-            duplicate_error = False
-            duplicate_warning = False
-            
-            # [검사 1] 같은 파일 (파일명 + 행 수)
+            # [1] 같은 파일 (파일명 + 행 수)
             file_signature = (uploaded_file.name, len(new_df))
             already_uploaded_files = [
                 (info['filename'], info['n_rows']) 
                 for info in st.session_state.uploaded_files_info
             ]
             if file_signature in already_uploaded_files:
-                st.error(f"🛑 **중복 파일 감지** — '{uploaded_file.name}' ({len(new_df)}건)은 이미 업로드되었습니다.")
-                st.warning("같은 파일을 두 번 업로드할 수 없습니다.")
-                duplicate_error = True
-            else:
-                st.success("✅ [1/3] 새 파일 (이전에 업로드되지 않음)")
+                st.session_state.upload_result = {
+                    'status': 'error',
+                    'message': f"'{uploaded_file.name}' ({len(new_df)}건)은 이미 업로드된 파일입니다. 같은 파일을 두 번 업로드할 수 없습니다."
+                }
+                st.session_state.uploader_key += 1
+                st.rerun()
             
-            # [검사 2] No 컬럼 중복 체크
-            if 'No' in new_df.columns and not duplicate_error:
+            # [2] No 컬럼 중복
+            if 'No' in new_df.columns:
                 new_nos = set(new_df['No'].dropna().astype(int).tolist())
-                
-                # 기존 데이터의 No 모음
                 existing_nos = set(base_df['No'].dropna().astype(int).tolist())
                 for d in st.session_state.uploaded_data:
                     if 'No' in d.columns:
@@ -662,110 +903,87 @@ def render_data_upload():
                 overlap_nos = new_nos & existing_nos
                 if overlap_nos:
                     overlap_sample = sorted(list(overlap_nos))[:5]
-                    st.error(f"🛑 **No 컬럼 중복** — 이미 존재하는 번호: `{overlap_sample}{'...' if len(overlap_nos) > 5 else ''}` ({len(overlap_nos)}건)")
-                    st.warning("동일한 No를 가진 행은 추가할 수 없습니다. 새 No로 업데이트된 파일을 업로드해주세요.")
-                    duplicate_error = True
-                else:
-                    st.success(f"✅ [2/3] No 컬럼 중복 없음 (신규 No: {min(new_nos)} ~ {max(new_nos)})")
+                    sample_str = ', '.join(map(str, overlap_sample))
+                    extra = f" 등 총 {len(overlap_nos)}건" if len(overlap_nos) > 5 else ""
+                    st.session_state.upload_result = {
+                        'status': 'error',
+                        'message': f"No 컬럼 중복 — 이미 존재하는 번호: {sample_str}{extra}. 새 No로 업데이트된 파일을 업로드해주세요."
+                    }
+                    st.session_state.uploader_key += 1
+                    st.rerun()
             
-            # [검사 3] 행 단위 중복 (Build + Model + Test_Item + Result)
-            if not duplicate_error:
-                check_cols = ['Build_Num', 'Model', 'Test_Item', 'Result']
-                if all(c in new_df.columns for c in check_cols):
-                    # 기존 데이터에서 키 추출
-                    all_existing = pd.concat([base_df] + st.session_state.uploaded_data, ignore_index=True) \
-                        if st.session_state.uploaded_data else base_df
-                    existing_keys = set(
-                        all_existing[check_cols].apply(
-                            lambda r: tuple(r), axis=1
-                        ).tolist()
-                    )
-                    new_keys = new_df[check_cols].apply(lambda r: tuple(r), axis=1).tolist()
-                    n_overlap = sum(1 for k in new_keys if k in existing_keys)
-                    
-                    overlap_rate = n_overlap / len(new_df) * 100 if len(new_df) > 0 else 0
-                    
-                    if overlap_rate >= 50:
-                        st.error(f"🛑 **데이터 중복** — {n_overlap}건 ({overlap_rate:.1f}%)이 기존 데이터와 동일한 조합입니다.")
-                        st.warning(f"50% 이상 중복되어 차단됩니다. 새 데이터인지 확인해주세요.")
-                        duplicate_error = True
-                    elif overlap_rate >= 10:
-                        st.warning(f"⚠️ [3/3] 부분 중복 — {n_overlap}건 ({overlap_rate:.1f}%)이 기존과 유사한 조합 (Build+Model+Test_Item+Result)")
-                        st.info("10~50% 중복은 경고만 표시됩니다. 추가 가능하지만 확인 후 진행하세요.")
-                        duplicate_warning = True
-                    else:
-                        st.success(f"✅ [3/3] 신규 데이터 ({overlap_rate:.1f}% 미만 유사)")
+            # [3] 행 단위 중복 (50% 이상이면 차단)
+            check_cols = ['Build_Num', 'Model', 'Test_Item', 'Result']
+            if all(c in new_df.columns for c in check_cols):
+                all_existing = pd.concat([base_df] + st.session_state.uploaded_data, ignore_index=True) \
+                    if st.session_state.uploaded_data else base_df
+                existing_keys = set(
+                    all_existing[check_cols].apply(lambda r: tuple(r), axis=1).tolist()
+                )
+                new_keys = new_df[check_cols].apply(lambda r: tuple(r), axis=1).tolist()
+                n_overlap = sum(1 for k in new_keys if k in existing_keys)
+                overlap_rate = n_overlap / len(new_df) * 100 if len(new_df) > 0 else 0
+                
+                if overlap_rate >= 50:
+                    st.session_state.upload_result = {
+                        'status': 'error',
+                        'message': f"데이터 중복 — {n_overlap}건 ({overlap_rate:.1f}%)이 기존 데이터와 동일합니다. 50% 이상 중복되어 차단됩니다."
+                    }
+                    st.session_state.uploader_key += 1
+                    st.rerun()
             
-            if duplicate_error:
-                st.markdown("---")
-                st.error("🛑 **중복 검사 실패** — 위 문제를 해결한 후 다시 업로드해주세요.")
-                return
+            # ===== 검증 통과 → 자동 추가 =====
+            no_set = set(new_df['No'].dropna().astype(int).tolist()) if 'No' in new_df.columns else set()
+            st.session_state.uploaded_files_info.append({
+                'filename': uploaded_file.name,
+                'n_rows': len(new_df),
+                'no_set': no_set,
+                'uploaded_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            st.session_state.uploaded_data.append(new_df)
+            st.session_state.data_version += 1
             
-            # ===== 미리보기 =====
-            st.markdown("---")
-            st.markdown("#### 👁️ 데이터 미리보기")
-            preview_cols = ['No', 'IC', 'Model', 'Build_Num', 'Test_Item', 'Result', 'Keyword']
-            preview_cols = [c for c in preview_cols if c in new_df.columns]
-            st.dataframe(new_df[preview_cols].head(10), use_container_width=True, hide_index=True)
-            
-            # 통계
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("총 행 수", len(new_df))
-            with col2:
-                pass_n = (new_df['Result'] == 'PASS').sum()
-                st.metric("PASS", pass_n)
-            with col3:
-                fail_n = (new_df['Result'] == 'FAIL').sum()
-                st.metric("FAIL", fail_n)
-            
-            # 신규 빌드 정보
+            # 신규 빌드 정보 포함
             new_builds = sorted(new_df['Build_Num'].unique())
             existing_builds = sorted(base_df['Build_Num'].unique())
             truly_new_builds = [b for b in new_builds if b not in existing_builds]
             
+            pass_n = (new_df['Result'] == 'PASS').sum()
+            fail_n = (new_df['Result'] == 'FAIL').sum()
+            
+            success_msg = f"`{uploaded_file.name}` 파일에서 **{len(new_df)}건** 추가됨 (PASS {pass_n} · FAIL {fail_n})"
             if truly_new_builds:
-                st.info(f"🆕 신규 빌드 감지: {truly_new_builds}")
+                success_msg += f"  🆕 신규 빌드: {truly_new_builds}"
             
-            # 데이터 추가 버튼
-            st.markdown("---")
-            
-            button_label = "💾 데이터에 추가하기"
-            if duplicate_warning:
-                button_label = "⚠️ 경고를 확인했으니 그래도 추가하기"
-            
-            if st.button(button_label, type="primary", use_container_width=True):
-                # 업로드 기록 저장
-                no_set = set(new_df['No'].dropna().astype(int).tolist()) if 'No' in new_df.columns else set()
-                st.session_state.uploaded_files_info.append({
-                    'filename': uploaded_file.name,
-                    'n_rows': len(new_df),
-                    'no_set': no_set,
-                    'uploaded_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                })
-                st.session_state.uploaded_data.append(new_df)
-                st.session_state.data_version += 1
-                st.success(f"✅ {len(new_df)}건이 추가되었습니다! 다른 메뉴에서 갱신된 분석을 확인하세요.")
-                st.balloons()
-                st.rerun()
+            # 성공 메시지 저장 → 화면 초기화
+            st.session_state.upload_result = {
+                'status': 'success',
+                'message': success_msg
+            }
+            st.session_state.uploader_key += 1
+            st.rerun()
         
         except Exception as e:
-            st.error(f"❌ 파일 처리 중 오류: {e}")
-            import traceback
-            with st.expander("상세 에러"):
-                st.code(traceback.format_exc())
+            # 예외 → 팝업으로 사유 표시
+            st.session_state.upload_result = {
+                'status': 'error',
+                'message': f"파일 처리 중 오류 발생: {str(e)}"
+            }
+            st.session_state.uploader_key += 1
+            st.rerun()
     
-    # 업로드 이력
+    # ===== 업로드 이력 (선택적 표시) =====
     if st.session_state.uploaded_files_info:
         st.markdown("---")
         st.markdown("#### 📜 업로드 이력")
         for i, info in enumerate(st.session_state.uploaded_files_info, 1):
-            st.markdown(f"**{i}. {info['filename']}** — {info['n_rows']:,}건 · {info['uploaded_at']}")
+            st.markdown(f"**{i}.** `{info['filename']}` — {info['n_rows']:,}건 · {info['uploaded_at']}")
         
-        if st.button("🗑️ 추가된 데이터 모두 초기화"):
+        if st.button("🗑️ 추가된 데이터 모두 초기화", use_container_width=True):
             st.session_state.uploaded_data = []
             st.session_state.uploaded_files_info = []
             st.session_state.data_version += 1
+            st.session_state.uploader_key += 1
             st.rerun()
 
 
@@ -1328,7 +1546,7 @@ except Exception as e:
 st.sidebar.title("📋 메뉴")
 menu = st.sidebar.radio(
     "분석 메뉴 선택",
-    ["🎯 필터 분석", "📊 전체 인사이트", "🚨 회귀 알람", "📁 데이터 업로드", "📥 보고서 생성"]
+    ["🎯 필터 분석", "📊 전체 인사이트", "📈 전체 통계", "🚨 회귀 알람", "📁 데이터 업로드", "📥 보고서 생성"]
 )
 
 st.sidebar.markdown("---")
@@ -1348,12 +1566,14 @@ st.sidebar.markdown("""
   5가지 필터 조합 동적 분석
 - **📊 전체 인사이트**  
   핵심 차트 5개
+- **📈 전체 통계** ⭐ NEW  
+  월별·고객사·매트릭스 분석
 - **🚨 회귀 알람**  
   최신 빌드 자동 검출
-- **📁 데이터 업로드** ⭐ NEW  
+- **📁 데이터 업로드**  
   엑셀/CSV 추가 → 즉시 분석
-- **📥 보고서 생성** ⭐ NEW  
-  주간 보고서 PPT 자동 생성
+- **📥 보고서 생성**  
+  월 단위 PPT 자동 생성
 """)
 
 
@@ -1367,6 +1587,12 @@ elif menu == "📊 전체 인사이트":
     st.markdown("## 📊 전체 인사이트")
     st.markdown("---")
     render_full_insights(df, fail_df)
+
+elif menu == "📈 전체 통계":
+    st.markdown("## 📈 전체 통계")
+    st.markdown("**전체 데이터의 통계 정보를 종합적으로 보여줍니다 (월별·고객사·매트릭스·메타)**")
+    st.markdown("---")
+    render_full_statistics(df, fail_df)
 
 elif menu == "🚨 회귀 알람":
     st.markdown("## 🚨 회귀 알람")
