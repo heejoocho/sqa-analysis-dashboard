@@ -589,233 +589,16 @@ def render_full_insights(df, fail_df):
 
 
 # ==============================================================================
-# 📊 메뉴 추가: 전문 통계 분석 (카이제곱 + 신뢰구간 + 시계열 예측)
+# 📈 메뉴: Fail율 예측 (시계열 회귀)
 # ==============================================================================
-def render_advanced_statistics(df, fail_df):
-    """전문 분석가 시선의 통계 분석"""
+def render_fail_rate_prediction(df, fail_df):
+    """다음 빌드 Fail율 예측 — 선형 회귀 기반"""
     plt.rcParams['font.family'] = font_name
     
-    st.markdown("### 🎯 전문 통계 분석")
-    st.caption("scipy + sklearn으로 통계적 유의성을 검증하고 미래 예측까지 수행합니다.")
+    st.markdown("### 📈 다음 빌드 Fail율 예측")
+    st.caption("sklearn 선형 회귀로 과거 빌드 추이를 학습해 미래 Fail율을 예측합니다.")
     
-    # ===== ① 카이제곱 검정 (Chi-square Test) =====
-    st.markdown("---")
-    st.markdown("### 1️⃣ 카이제곱 독립성 검정 (Chi-square Test)")
-    st.caption("두 범주형 변수가 통계적으로 유의미한 관계가 있는지 검정합니다.")
-    
-    # 추천 분석 시나리오 콤보 (의미 있는 조합만)
-    scenario = st.selectbox(
-        "🎯 분석 시나리오 선택",
-        options=[
-            "IC × Keyword (IC별 Fail 패턴 분석) ⭐ 추천",
-            "Customer × Keyword (고객사별 결함 패턴)",
-            "Category × Keyword (테스트 카테고리별 결함)",
-            "Test_Item × Keyword (테스트 항목별 결함)",
-            "Model × Keyword (모델별 결함 패턴)",
-            "IC × Result (IC별 합격률 비교)",
-            "Customer × Result (고객사별 합격률 비교)",
-            "Category × Result (카테고리별 합격률)",
-        ],
-        key='chi_scenario',
-        help="의미 있는 분석 조합을 미리 준비했습니다."
-    )
-    
-    # 시나리오 → 변수 자동 매핑
-    scenario_map = {
-        "IC × Keyword (IC별 Fail 패턴 분석) ⭐ 추천": ('IC', 'Keyword'),
-        "Customer × Keyword (고객사별 결함 패턴)": ('Customer', 'Keyword'),
-        "Category × Keyword (테스트 카테고리별 결함)": ('Category', 'Keyword'),
-        "Test_Item × Keyword (테스트 항목별 결함)": ('Test_Item', 'Keyword'),
-        "Model × Keyword (모델별 결함 패턴)": ('Model', 'Keyword'),
-        "IC × Result (IC별 합격률 비교)": ('IC', 'Result'),
-        "Customer × Result (고객사별 합격률 비교)": ('Customer', 'Result'),
-        "Category × Result (카테고리별 합격률)": ('Category', 'Result'),
-    }
-    
-    cat_var1, cat_var2 = scenario_map[scenario]
-    
-    # 변수 정보 표시
-    col_info1, col_info2 = st.columns(2)
-    with col_info1:
-        st.info(f"📊 **변수 1**: `{cat_var1}`")
-    with col_info2:
-        st.info(f"📊 **변수 2**: `{cat_var2}`")
-    
-    if cat_var1 != cat_var2:
-        try:
-            # 분석용 데이터
-            analysis_df = fail_df if cat_var2 == 'Keyword' else df
-            analysis_df = analysis_df[analysis_df[cat_var2] != '']
-            
-            contingency = pd.crosstab(analysis_df[cat_var1], analysis_df[cat_var2])
-            
-            if contingency.size > 0:
-                chi2, p_value, dof, expected = chi2_contingency(contingency)
-                
-                # Cramér's V (효과 크기)
-                n = contingency.sum().sum()
-                cramers_v = np.sqrt(chi2 / (n * (min(contingency.shape) - 1)))
-                
-                # 결과 표시
-                k1, k2, k3, k4 = st.columns(4)
-                with k1:
-                    st.metric("χ² (카이제곱)", f"{chi2:.2f}")
-                with k2:
-                    st.metric("자유도 (df)", f"{dof}")
-                with k3:
-                    if p_value < 0.001:
-                        st.metric("p-value", "< 0.001", delta="유의함", delta_color="normal")
-                    elif p_value < 0.05:
-                        st.metric("p-value", f"{p_value:.4f}", delta="유의함", delta_color="normal")
-                    else:
-                        st.metric("p-value", f"{p_value:.4f}", delta="유의 X", delta_color="inverse")
-                with k4:
-                    # Cramér's V 해석
-                    if cramers_v < 0.1:
-                        strength = "매우 약함"
-                    elif cramers_v < 0.3:
-                        strength = "약함"
-                    elif cramers_v < 0.5:
-                        strength = "중간"
-                    else:
-                        strength = "강함"
-                    st.metric("Cramér's V", f"{cramers_v:.3f}", delta=strength)
-                
-                # 해석
-                if p_value < 0.05:
-                    st.success(
-                        f"✅ **통계적으로 유의미한 관계** (p={p_value:.4f} < 0.05)\n\n"
-                        f"`{cat_var1}`과(와) `{cat_var2}` 사이에 우연이 아닌 관계가 존재합니다. "
-                        f"효과 크기는 **{strength}** 수준입니다 (Cramér's V = {cramers_v:.3f})."
-                    )
-                else:
-                    st.warning(
-                        f"⚠️ **통계적으로 유의미하지 않음** (p={p_value:.4f} ≥ 0.05)\n\n"
-                        f"두 변수 사이의 관계가 우연으로 설명될 수 있습니다."
-                    )
-                
-                # 관측값 vs 기대값 비교 히트맵
-                st.markdown("##### 📊 관측값 vs 기대값 차이 (잔차 분석)")
-                residuals = (contingency.values - expected) / np.sqrt(expected)
-                resid_df = pd.DataFrame(residuals, index=contingency.index, columns=contingency.columns)
-                
-                fig, ax = plt.subplots(figsize=(12, max(4, len(resid_df) * 0.5)))
-                sns.heatmap(resid_df, annot=True, fmt='.2f', cmap='RdBu_r', center=0,
-                            cbar_kws={'label': '표준화 잔차'}, ax=ax,
-                            linewidths=0.5, linecolor='white')
-                ax.set_title(f'{cat_var1} × {cat_var2} 표준화 잔차 (|값| > 2: 유의)',
-                             fontsize=13, fontweight='bold')
-                plt.tight_layout()
-                st.pyplot(fig)
-                plt.close(fig)
-                
-                st.info(
-                    "💡 **해석 가이드**:\n"
-                    "- 빨간색 (양수) = 기대보다 많이 발생\n"
-                    "- 파란색 (음수) = 기대보다 적게 발생\n"
-                    "- |값| > 2 = 통계적으로 의미 있는 차이"
-                )
-        except Exception as e:
-            st.error(f"검정 중 오류: {e}")
-    else:
-        st.warning("두 변수를 다르게 선택해주세요.")
-    
-    # ===== ② 신뢰구간 분석 (Confidence Interval) =====
-    st.markdown("---")
-    st.markdown("### 2️⃣ Fail율 95% 신뢰구간 (Confidence Interval)")
-    st.caption("표본의 Fail율로 모집단의 진짜 Fail율 범위를 추정합니다.")
-    
-    # 전체 Fail율 신뢰구간
-    n_total = len(df)
-    n_fail = len(fail_df)
-    p_hat = n_fail / n_total
-    
-    # 윌슨 신뢰구간 (Wilson score interval) - 비율에 적합
-    z = 1.96  # 95% 신뢰수준
-    denom = 1 + z**2/n_total
-    center = (p_hat + z**2/(2*n_total)) / denom
-    margin = z * np.sqrt(p_hat*(1-p_hat)/n_total + z**2/(4*n_total**2)) / denom
-    ci_low = max(0, center - margin)
-    ci_high = min(1, center + margin)
-    
-    # 표시
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("전체 Fail율 (점추정)", f"{p_hat*100:.2f}%")
-    with col2:
-        st.metric("95% 신뢰구간 하한", f"{ci_low*100:.2f}%")
-    with col3:
-        st.metric("95% 신뢰구간 상한", f"{ci_high*100:.2f}%")
-    
-    st.success(
-        f"✅ **해석**: 95% 신뢰수준에서 모집단의 진짜 Fail율은 "
-        f"**[{ci_low*100:.2f}%, {ci_high*100:.2f}%]** 범위 안에 있습니다.\n\n"
-        f"표본 크기 n={n_total:,}로 충분히 크므로 신뢰구간이 좁고(±{margin*100:.2f}%p) 신뢰도가 높습니다."
-    )
-    
-    # IC별 신뢰구간
-    st.markdown("##### 📊 IC별 Fail율 + 95% 신뢰구간")
-    
-    ic_ci = []
-    for ic in df['IC'].unique():
-        ic_df = df[df['IC'] == ic]
-        n_ic = len(ic_df)
-        n_ic_fail = (ic_df['Result'] == 'FAIL').sum()
-        p_ic = n_ic_fail / n_ic if n_ic > 0 else 0
-        
-        # 윌슨 CI
-        denom = 1 + z**2/n_ic
-        center = (p_ic + z**2/(2*n_ic)) / denom
-        margin = z * np.sqrt(p_ic*(1-p_ic)/n_ic + z**2/(4*n_ic**2)) / denom
-        ci_low_ic = max(0, center - margin)
-        ci_high_ic = min(1, center + margin)
-        
-        ic_ci.append({
-            'IC': ic,
-            '표본수': n_ic,
-            'Fail': n_ic_fail,
-            'Fail율(%)': round(p_ic*100, 2),
-            'CI하한(%)': round(ci_low_ic*100, 2),
-            'CI상한(%)': round(ci_high_ic*100, 2),
-            '오차범위(±%p)': round(margin*100, 2)
-        })
-    
-    ic_ci_df = pd.DataFrame(ic_ci).sort_values('Fail율(%)', ascending=False)
-    st.dataframe(ic_ci_df, use_container_width=True, hide_index=True)
-    
-    # 신뢰구간 시각화
-    fig, ax = plt.subplots(figsize=(10, max(4, len(ic_ci_df) * 0.6)))
-    y_pos = range(len(ic_ci_df))
-    
-    for i, row in ic_ci_df.iterrows():
-        # 신뢰구간 (가로 막대)
-        ax.plot([row['CI하한(%)'], row['CI상한(%)']], 
-                [y_pos[list(ic_ci_df.index).index(i)], y_pos[list(ic_ci_df.index).index(i)]],
-                color='#3498db', linewidth=4, alpha=0.5)
-        # 점추정값
-        ax.scatter(row['Fail율(%)'], y_pos[list(ic_ci_df.index).index(i)],
-                  s=150, color='#e74c3c', zorder=5, edgecolor='black', linewidth=1.5)
-        # 라벨
-        ax.text(row['CI상한(%)'] + 0.5, y_pos[list(ic_ci_df.index).index(i)],
-               f"{row['Fail율(%)']}% [{row['CI하한(%)']:.1f}, {row['CI상한(%)']:.1f}]",
-               va='center', fontsize=10)
-    
-    ax.set_yticks(list(y_pos))
-    ax.set_yticklabels(ic_ci_df['IC'].tolist())
-    ax.set_xlabel('Fail율 (%)')
-    ax.set_title('IC별 Fail율 + 95% 신뢰구간', fontsize=13, fontweight='bold')
-    ax.grid(True, alpha=0.3, axis='x')
-    ax.set_xlim(0, max(ic_ci_df['CI상한(%)']) * 1.3)
-    plt.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
-    
-    # ===== ③ 시계열 예측 (Linear Regression) =====
-    st.markdown("---")
-    st.markdown("### 3️⃣ 다음 빌드 Fail율 예측 (시계열 회귀)")
-    st.caption("과거 빌드별 Fail율을 학습해서 다음 빌드의 Fail율을 예측합니다.")
-    
-    # 빌드별 Fail율 추출
+    # ===== 빌드별 Fail율 추출 =====
     build_summary = df.groupby('Build_Num').agg(
         total=('Result', 'count'),
         fail=('Result', lambda x: (x == 'FAIL').sum())
@@ -823,129 +606,192 @@ def render_advanced_statistics(df, fail_df):
     build_summary['fail_rate'] = (build_summary['fail'] / build_summary['total'] * 100).round(2)
     build_summary = build_summary.sort_values('Build_Num').reset_index(drop=True)
     
-    if len(build_summary) >= 3:
-        # 모델 선택
-        col1, col2 = st.columns(2)
-        with col1:
-            n_recent = st.slider(
-                "최근 몇 개 빌드로 학습?", 
-                min_value=3, 
-                max_value=len(build_summary),
-                value=min(5, len(build_summary)),
-                help="최근 데이터일수록 미래 예측에 유리합니다."
-            )
-        with col2:
-            next_build_input = st.number_input(
-                "예측할 빌드 번호",
-                min_value=int(build_summary['Build_Num'].max()) + 1,
-                value=int(build_summary['Build_Num'].max()) + 100,
-                step=10
-            )
-        
-        # 학습 데이터
-        train_data = build_summary.tail(n_recent).copy()
-        X = train_data[['Build_Num']].values
-        y = train_data['fail_rate'].values
-        
-        # 선형 회귀
-        model = LinearRegression()
-        model.fit(X, y)
-        
-        # 예측
-        next_build_pred = model.predict([[next_build_input]])[0]
-        
-        # R² 점수
-        r2 = model.score(X, y)
-        
-        # 예측 결과
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("예측 Fail율", f"{next_build_pred:.2f}%")
-        with col2:
-            current = build_summary['fail_rate'].iloc[-1]
-            delta = next_build_pred - current
-            st.metric("최신 빌드 대비", f"{delta:+.2f}%p",
-                      delta=f"{'증가' if delta > 0 else '감소'}",
-                      delta_color="inverse" if delta > 0 else "normal")
-        with col3:
-            st.metric("모델 적합도 (R²)", f"{r2:.3f}",
-                      delta=f"{'좋음' if r2 > 0.5 else '낮음'}",
-                      delta_color="normal" if r2 > 0.5 else "off")
-        
-        # 추세 차트
-        fig, ax = plt.subplots(figsize=(13, 6))
-        
-        # 전체 빌드 (회색 점)
-        not_used = build_summary[~build_summary['Build_Num'].isin(train_data['Build_Num'])]
-        if len(not_used) > 0:
-            ax.scatter(not_used['Build_Num'], not_used['fail_rate'],
-                       s=120, c='lightgray', edgecolors='gray', linewidth=1.5,
-                       zorder=3, label='과거 빌드 (학습 미사용)')
-        
-        # 학습에 사용된 빌드 (파란 점)
-        ax.scatter(train_data['Build_Num'], train_data['fail_rate'],
-                   s=120, c='#3498db', edgecolors='black', linewidth=1.5,
-                   zorder=4, label=f'학습 데이터 (최근 {n_recent}개)')
-        
-        # 회귀선 (실제 학습 범위)
-        X_line = np.linspace(train_data['Build_Num'].min(), 
-                              train_data['Build_Num'].max(), 100).reshape(-1, 1)
-        y_line = model.predict(X_line)
-        ax.plot(X_line.flatten(), y_line, '-', color='#3498db', 
-                linewidth=2.5, alpha=0.7, label='회귀선 (학습 구간)')
-        
-        # 예측선 (미래)
-        X_pred = np.linspace(train_data['Build_Num'].max(), 
-                              next_build_input, 100).reshape(-1, 1)
-        y_pred = model.predict(X_pred)
-        ax.plot(X_pred.flatten(), y_pred, '--', color='#e74c3c', 
-                linewidth=2.5, label='예측선 (미래)')
-        
-        # 예측점 (별표)
-        ax.scatter([next_build_input], [next_build_pred], 
-                   s=400, c='#e74c3c', marker='*', edgecolors='black', linewidth=2,
-                   zorder=10, label=f'예측: 빌드 {next_build_input} = {next_build_pred:.2f}%')
-        
-        ax.annotate(f'예측 {next_build_pred:.2f}%',
-                    (next_build_input, next_build_pred),
-                    xytext=(15, 15), textcoords='offset points',
-                    fontsize=12, fontweight='bold', color='#e74c3c',
-                    bbox=dict(boxstyle='round,pad=0.4', facecolor='white',
-                              edgecolor='#e74c3c', linewidth=2))
-        
-        ax.set_xlabel('빌드 번호', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Fail율 (%)', fontsize=12, fontweight='bold')
-        ax.set_title(f'다음 빌드 Fail율 예측 (선형 회귀, 최근 {n_recent}개 학습)',
-                     fontsize=13, fontweight='bold', pad=15)
-        ax.grid(True, alpha=0.3)
-        ax.legend(loc='upper right', fontsize=10)
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close(fig)
-        
-        # 해석
-        if r2 > 0.7:
-            interp = "강한 추세"
-            color = "✅"
-        elif r2 > 0.4:
-            interp = "중간 추세"
-            color = "📊"
-        else:
-            interp = "약한 추세 (예측 신뢰도 낮음)"
-            color = "⚠️"
-        
-        st.info(
-            f"{color} **모델 해석**:\n"
-            f"- 최근 {n_recent}개 빌드의 Fail율 추이는 **{interp}** (R² = {r2:.3f})\n"
-            f"- 다음 빌드 {next_build_input}의 예측 Fail율: **{next_build_pred:.2f}%**\n"
-            f"- 최신 빌드 대비 **{'증가' if delta > 0 else '감소'}** {abs(delta):.2f}%p 예상\n\n"
-            f"💡 R²가 1에 가까울수록 모델이 데이터를 잘 설명합니다. "
-            f"R² < 0.4면 예측을 참고로만 활용하세요."
-        )
-    else:
+    if len(build_summary) < 3:
         st.warning("빌드가 3개 이상 필요합니다.")
-
-
+        return
+    
+    # ===== 상단 KPI =====
+    st.markdown("#### 📊 현재 상태")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("📦 분석 빌드 수", f"{len(build_summary)}개")
+    with col2:
+        latest_rate = build_summary['fail_rate'].iloc[-1]
+        st.metric("📌 최신 빌드 Fail율", f"{latest_rate:.2f}%")
+    with col3:
+        avg_rate = build_summary['fail_rate'].mean()
+        st.metric("📊 평균 Fail율", f"{avg_rate:.2f}%")
+    with col4:
+        # 최근 추세 (최근 3개 평균 vs 전체 평균)
+        recent_avg = build_summary['fail_rate'].tail(3).mean()
+        trend = recent_avg - avg_rate
+        st.metric("📉 최근 추세",
+                  f"{'개선' if trend < 0 else '악화'}",
+                  delta=f"{trend:+.2f}%p",
+                  delta_color="normal" if trend < 0 else "inverse")
+    
+    st.markdown("---")
+    
+    # ===== 모델 설정 =====
+    st.markdown("#### ⚙️ 예측 모델 설정")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        n_recent = st.slider(
+            "📚 최근 몇 개 빌드로 학습?",
+            min_value=3,
+            max_value=len(build_summary),
+            value=min(5, len(build_summary)),
+            help="최근 데이터일수록 미래 예측에 유리합니다. 너무 적으면 노이즈에 민감, 너무 많으면 과거 추세 영향."
+        )
+    with col2:
+        next_build_input = st.number_input(
+            "🎯 예측할 빌드 번호",
+            min_value=int(build_summary['Build_Num'].max()) + 1,
+            value=int(build_summary['Build_Num'].max()) + 100,
+            step=10,
+            help="이 빌드 번호의 Fail율을 예측합니다."
+        )
+    
+    # ===== 모델 학습 =====
+    train_data = build_summary.tail(n_recent).copy()
+    X = train_data[['Build_Num']].values
+    y = train_data['fail_rate'].values
+    
+    model = LinearRegression()
+    model.fit(X, y)
+    
+    next_build_pred = float(model.predict([[next_build_input]])[0])
+    r2 = float(model.score(X, y))
+    
+    # 추세선 기울기 (한 빌드당 변화율)
+    slope = float(model.coef_[0]) * 100  # 100 빌드당 변화
+    
+    st.markdown("---")
+    
+    # ===== 예측 결과 =====
+    st.markdown("#### 🎯 예측 결과")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("🔮 예측 Fail율", f"{next_build_pred:.2f}%")
+    with col2:
+        current = build_summary['fail_rate'].iloc[-1]
+        delta = next_build_pred - current
+        st.metric("📊 최신 빌드 대비", f"{delta:+.2f}%p",
+                  delta=f"{'증가' if delta > 0 else '감소'}",
+                  delta_color="inverse" if delta > 0 else "normal")
+    with col3:
+        if r2 > 0.7:
+            confidence = "높음 ✅"
+            color = "normal"
+        elif r2 > 0.4:
+            confidence = "중간 📊"
+            color = "off"
+        else:
+            confidence = "낮음 ⚠️"
+            color = "inverse"
+        st.metric("🎯 모델 신뢰도 (R²)", f"{r2:.3f}", delta=confidence, delta_color=color)
+    
+    # ===== 추세 차트 =====
+    st.markdown("#### 📊 추세 분석")
+    
+    fig, ax = plt.subplots(figsize=(13, 6))
+    
+    # 학습 미사용 빌드 (회색)
+    not_used = build_summary[~build_summary['Build_Num'].isin(train_data['Build_Num'])]
+    if len(not_used) > 0:
+        ax.scatter(not_used['Build_Num'], not_used['fail_rate'],
+                   s=120, c='lightgray', edgecolors='gray', linewidth=1.5,
+                   zorder=3, label='과거 빌드 (학습 미사용)')
+    
+    # 학습 데이터 (파란 점)
+    ax.scatter(train_data['Build_Num'], train_data['fail_rate'],
+               s=150, c='#3498db', edgecolors='black', linewidth=1.5,
+               zorder=4, label=f'학습 데이터 (최근 {n_recent}개)')
+    
+    # 회귀선 (실선)
+    X_line = np.linspace(train_data['Build_Num'].min(),
+                         train_data['Build_Num'].max(), 100).reshape(-1, 1)
+    y_line = model.predict(X_line)
+    ax.plot(X_line.flatten(), y_line, '-', color='#3498db',
+            linewidth=2.5, alpha=0.7, label='회귀선 (학습 구간)')
+    
+    # 예측선 (점선)
+    X_pred = np.linspace(train_data['Build_Num'].max(),
+                         next_build_input, 100).reshape(-1, 1)
+    y_pred = model.predict(X_pred)
+    ax.plot(X_pred.flatten(), y_pred, '--', color='#e74c3c',
+            linewidth=2.5, label='예측선 (미래)')
+    
+    # 예측점 (큰 별표)
+    ax.scatter([next_build_input], [next_build_pred],
+               s=500, c='#e74c3c', marker='*', edgecolors='black', linewidth=2,
+               zorder=10, label=f'예측: 빌드 {next_build_input} → {next_build_pred:.2f}%')
+    
+    # 예측값 라벨
+    ax.annotate(f'예측 {next_build_pred:.2f}%',
+                (next_build_input, next_build_pred),
+                xytext=(20, 20), textcoords='offset points',
+                fontsize=13, fontweight='bold', color='#e74c3c',
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='white',
+                          edgecolor='#e74c3c', linewidth=2),
+                arrowprops=dict(arrowstyle='->', color='#e74c3c', lw=2))
+    
+    # 평균선 (참고)
+    avg_y = build_summary['fail_rate'].mean()
+    ax.axhline(y=avg_y, color='gray', linestyle=':', alpha=0.5,
+               label=f'전체 평균 Fail율 ({avg_y:.2f}%)')
+    
+    ax.set_xlabel('빌드 번호', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Fail율 (%)', fontsize=12, fontweight='bold')
+    ax.set_title(f'Fail율 추세 + 다음 빌드 예측 (선형 회귀, 최근 {n_recent}개 학습)',
+                 fontsize=13, fontweight='bold', pad=15)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='best', fontsize=10)
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+    
+    # ===== 해석 =====
+    st.markdown("---")
+    st.markdown("#### 💡 모델 해석")
+    
+    # 추세 방향
+    if slope > 0:
+        trend_text = f"⚠️ 상승 추세 — 100 빌드당 +{slope:.2f}%p"
+        trend_advice = "다음 빌드에서도 Fail율이 증가할 가능성이 있습니다. 회귀 발생 가능성을 모니터링하세요."
+    elif slope < 0:
+        trend_text = f"✅ 하락 추세 — 100 빌드당 {slope:.2f}%p"
+        trend_advice = "펌웨어가 안정화되고 있습니다. 현재 개선 방향을 유지하세요."
+    else:
+        trend_text = "➡️ 변화 없음"
+        trend_advice = "Fail율이 안정적입니다."
+    
+    # R² 신뢰도 해석
+    if r2 > 0.7:
+        r2_text = f"R² = {r2:.3f} → 강한 추세, 예측 신뢰도 높음"
+    elif r2 > 0.4:
+        r2_text = f"R² = {r2:.3f} → 중간 추세, 예측을 참고로 활용"
+    else:
+        r2_text = f"R² = {r2:.3f} → 약한 추세, 변동성 큼 (참고용)"
+    
+    info_text = (
+        f"**🔬 분석 결과**\n\n"
+        f"- **추세**: {trend_text}\n"
+        f"- **모델 적합도**: {r2_text}\n"
+        f"- **예측값**: 빌드 {next_build_input} → **{next_build_pred:.2f}%**\n"
+        f"- **최신 대비**: {delta:+.2f}%p\n\n"
+        f"💡 **의사결정 조언**: {trend_advice}"
+    )
+    st.info(info_text)
+    
+    # 빌드별 데이터 (참고)
+    with st.expander("📋 빌드별 Fail율 데이터 (참고)"):
+        display_df = build_summary.copy()
+        display_df.columns = ['빌드 번호', '전체 Test', 'Fail', 'Fail율(%)']
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 # ==============================================================================
@@ -2160,7 +2006,7 @@ except Exception as e:
 st.sidebar.title("📋 메뉴")
 menu = st.sidebar.radio(
     "분석 메뉴 선택",
-    ["🎯 필터 분석", "📊 전체 인사이트", "📈 전체 통계", "🔬 전문 통계 분석", "🚨 회귀 알람", "📁 데이터 업로드", "📥 보고서 생성"]
+    ["🎯 필터 분석", "📊 전체 인사이트", "📈 전체 통계", "📈 Fail율 예측", "🚨 회귀 알람", "📁 데이터 업로드", "📥 보고서 생성"]
 )
 
 st.sidebar.markdown("---")
@@ -2182,8 +2028,8 @@ st.sidebar.markdown("""
   핵심 차트 5개
 - **📈 전체 통계**  
   월별·고객사·매트릭스 분석
-- **🔬 전문 통계 분석** ⭐ NEW  
-  카이제곱·신뢰구간·시계열 예측
+- **📈 Fail율 예측** ⭐ NEW  
+  선형 회귀로 다음 빌드 예측
 - **🚨 회귀 알람**  
   최신 빌드 자동 검출
 - **📁 데이터 업로드**  
@@ -2210,11 +2056,11 @@ elif menu == "📈 전체 통계":
     st.markdown("---")
     render_full_statistics(df, fail_df)
 
-elif menu == "🔬 전문 통계 분석":
-    st.markdown("## 🔬 전문 통계 분석")
-    st.markdown("**카이제곱 검정 + 신뢰구간 + 시계열 예측 (scipy + sklearn 활용)**")
+elif menu == "📈 Fail율 예측":
+    st.markdown("## 📈 Fail율 예측 (시계열 회귀)")
+    st.markdown("**sklearn 선형 회귀로 과거 빌드 추이를 학습해 다음 빌드의 Fail율을 예측합니다**")
     st.markdown("---")
-    render_advanced_statistics(df, fail_df)
+    render_fail_rate_prediction(df, fail_df)
 
 elif menu == "🚨 회귀 알람":
     st.markdown("## 🚨 회귀 알람")
