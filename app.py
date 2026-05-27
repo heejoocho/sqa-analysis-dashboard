@@ -151,49 +151,81 @@ def render_filter_analysis(df, fail_df):
 
     st.markdown("---")
 
-    # 필터 UI
+    # 필터 UI (다중 선택 가능)
     st.markdown("### 🎯 필터 선택")
-    st.caption("여러 조건을 조합해서 원하는 데이터만 분석할 수 있습니다.")
+    st.caption("각 필터에서 여러 값을 동시에 선택할 수 있습니다. (비어두면 전체)")
 
     row1_col1, row1_col2, row1_col3 = st.columns(3)
     with row1_col1:
-        ic_filter = st.selectbox("🔌 IC", ["전체"] + sorted(df['IC'].unique().tolist()))
+        ic_filter = st.multiselect(
+            "🔌 IC", 
+            options=sorted(df['IC'].unique().tolist()),
+            placeholder="전체 IC (비어두면 모두 선택)"
+        )
     with row1_col2:
-        model_filter = st.selectbox("💻 Model", ["전체"] + sorted(df['Model'].unique().tolist()))
+        model_filter = st.multiselect(
+            "💻 Model",
+            options=sorted(df['Model'].unique().tolist()),
+            placeholder="전체 모델 (비어두면 모두 선택)"
+        )
     with row1_col3:
-        build_filter = st.selectbox("🔄 Build", ["전체"] + sorted(df['Build_Num'].unique().tolist()))
+        build_filter = st.multiselect(
+            "🔄 Build",
+            options=sorted(df['Build_Num'].unique().tolist()),
+            placeholder="전체 빌드 (비어두면 모두 선택)"
+        )
     
     row2_col1, row2_col2, row2_col3 = st.columns(3)
     with row2_col1:
-        test_item_filter = st.selectbox("🧪 Test_Item", ["전체"] + sorted(df['Test_Item'].unique().tolist()))
+        test_item_filter = st.multiselect(
+            "🧪 Test_Item",
+            options=sorted(df['Test_Item'].unique().tolist()),
+            placeholder="전체 Test_Item (비어두면 모두 선택)"
+        )
     with row2_col2:
-        kw_filter = st.selectbox("🐛 Fail_Type", ["전체"] + KEYWORDS_ALL)
+        kw_filter = st.multiselect(
+            "🐛 Fail_Type",
+            options=KEYWORDS_ALL,
+            placeholder="전체 Fail_Type (비어두면 모두 선택)"
+        )
     with row2_col3:
         st.write("")
 
-    # 필터 적용
+    # 필터 적용 (multiselect는 리스트)
     filtered_all = df.copy()
     filtered_fail = fail_df.copy()
     active_filters = []
-    if ic_filter != "전체":
-        filtered_all = filtered_all[filtered_all['IC'] == ic_filter]
-        filtered_fail = filtered_fail[filtered_fail['IC'] == ic_filter]
-        active_filters.append(f"IC={ic_filter}")
-    if model_filter != "전체":
-        filtered_all = filtered_all[filtered_all['Model'] == model_filter]
-        filtered_fail = filtered_fail[filtered_fail['Model'] == model_filter]
-        active_filters.append(f"Model={model_filter}")
-    if build_filter != "전체":
-        filtered_all = filtered_all[filtered_all['Build_Num'] == build_filter]
-        filtered_fail = filtered_fail[filtered_fail['Build_Num'] == build_filter]
-        active_filters.append(f"Build={build_filter}")
-    if test_item_filter != "전체":
-        filtered_all = filtered_all[filtered_all['Test_Item'] == test_item_filter]
-        filtered_fail = filtered_fail[filtered_fail['Test_Item'] == test_item_filter]
-        active_filters.append(f"Test_Item={test_item_filter}")
-    if kw_filter != "전체":
-        filtered_fail = filtered_fail[filtered_fail['Keyword'] == kw_filter]
-        active_filters.append(f"Fail_Type={kw_filter}")
+    if ic_filter:
+        filtered_all = filtered_all[filtered_all['IC'].isin(ic_filter)]
+        filtered_fail = filtered_fail[filtered_fail['IC'].isin(ic_filter)]
+        active_filters.append(f"IC={','.join(ic_filter)}")
+    if model_filter:
+        filtered_all = filtered_all[filtered_all['Model'].isin(model_filter)]
+        filtered_fail = filtered_fail[filtered_fail['Model'].isin(model_filter)]
+        if len(model_filter) <= 3:
+            active_filters.append(f"Model={','.join(model_filter)}")
+        else:
+            active_filters.append(f"Model={len(model_filter)}개")
+    if build_filter:
+        filtered_all = filtered_all[filtered_all['Build_Num'].isin(build_filter)]
+        filtered_fail = filtered_fail[filtered_fail['Build_Num'].isin(build_filter)]
+        if len(build_filter) <= 3:
+            active_filters.append(f"Build={','.join(map(str, build_filter))}")
+        else:
+            active_filters.append(f"Build={len(build_filter)}개")
+    if test_item_filter:
+        filtered_all = filtered_all[filtered_all['Test_Item'].isin(test_item_filter)]
+        filtered_fail = filtered_fail[filtered_fail['Test_Item'].isin(test_item_filter)]
+        if len(test_item_filter) <= 3:
+            active_filters.append(f"Test_Item={','.join(test_item_filter)}")
+        else:
+            active_filters.append(f"Test_Item={len(test_item_filter)}개")
+    if kw_filter:
+        filtered_fail = filtered_fail[filtered_fail['Keyword'].isin(kw_filter)]
+        if len(kw_filter) <= 3:
+            active_filters.append(f"Fail_Type={','.join(kw_filter)}")
+        else:
+            active_filters.append(f"Fail_Type={len(kw_filter)}개")
 
     st.markdown("---")
     if active_filters:
@@ -229,7 +261,7 @@ def render_filter_analysis(df, fail_df):
     st.markdown("---")
 
     # Fail_Type 순위
-    if kw_filter == "전체":
+    if not kw_filter:
         st.markdown("### 🏆 ② Fail_Type 순위 (TOP 5)")
         kw_rank = filtered_fail['Keyword'].value_counts().head(5).reset_index()
         kw_rank.columns = ['Fail_Type', '건수']
@@ -256,7 +288,7 @@ def render_filter_analysis(df, fail_df):
         st.markdown("---")
 
     # 빌드별 추이
-    if build_filter == "전체":
+    if not build_filter:
         st.markdown("### 📈 ③ 빌드별 Fail 추이")
         build_trend = filtered_fail.groupby('Build_Num').size().reset_index(name='count')
         build_trend = build_trend.sort_values('Build_Num')
@@ -279,7 +311,7 @@ def render_filter_analysis(df, fail_df):
         st.markdown("---")
 
     # 모델별 순위
-    if model_filter == "전체":
+    if not model_filter:
         st.markdown("### 🔥 ④ 모델별 Fail 순위 (TOP 10)")
         model_rank = filtered_fail['Model'].value_counts().head(10).reset_index()
         model_rank.columns = ['Model', 'Fail 건수']
@@ -299,7 +331,7 @@ def render_filter_analysis(df, fail_df):
         st.markdown("---")
 
     # Test_Item별 순위
-    if test_item_filter == "전체":
+    if not test_item_filter:
         st.markdown("### 🧪 ⑤ Test_Item별 Fail 순위 (TOP 10)")
         item_rank = filtered_fail['Test_Item'].value_counts().head(10).reset_index()
         item_rank.columns = ['Test_Item', 'Fail 건수']
