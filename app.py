@@ -234,8 +234,6 @@ def render_filter_analysis(df, fail_df):
         kw_rank = filtered_fail['Keyword'].value_counts().head(5).reset_index()
         kw_rank.columns = ['Fail_Type', '건수']
         kw_rank['비중'] = (kw_rank['건수'] / kw_rank['건수'].sum() * 100).round(1)
-        kw_rank['우선순위'] = kw_rank['Fail_Type'].apply(
-            lambda k: KEYWORD_DOMAIN_MAP.get(k, {}).get('priority', '?'))
         kw_rank['검토영역'] = kw_rank['Fail_Type'].apply(
             lambda k: KEYWORD_DOMAIN_MAP.get(k, {}).get('area', '?'))
         kw_rank.insert(0, '순위', range(1, len(kw_rank) + 1))
@@ -328,14 +326,12 @@ def render_filter_analysis(df, fail_df):
         'No', 'IC', 'Model', 'Keyword', 'Build_Num',
         'Customer', 'Category', 'Test_Item', 'video_id'
     ]].copy()
-    display_df['우선순위'] = display_df['Keyword'].apply(
-        lambda k: KEYWORD_DOMAIN_MAP.get(k, {}).get('priority', '?'))
     display_df['영상'] = display_df['video_id'].apply(get_video_link)
     display_df = display_df.drop(columns=['video_id'])
-
-    priority_order = {'CRITICAL': 0, 'HIGH': 1, 'MID': 2}
-    display_df['_sort'] = display_df['우선순위'].map(priority_order).fillna(99)
-    display_df = display_df.sort_values('_sort').drop(columns=['_sort'])
+    # Fail_Type 건수 기준 정렬 (많은 것이 위로)
+    kw_counts = filtered_fail['Keyword'].value_counts().to_dict()
+    display_df['_sort'] = display_df['Keyword'].map(kw_counts).fillna(0)
+    display_df = display_df.sort_values('_sort', ascending=False).drop(columns=['_sort'])
 
     st.dataframe(
         display_df,
@@ -343,7 +339,6 @@ def render_filter_analysis(df, fail_df):
         hide_index=True,
         column_config={
             "영상": st.column_config.LinkColumn("영상 보기", display_text="🎬 재생"),
-            "우선순위": st.column_config.TextColumn("우선순위", width=90),
             "Keyword": st.column_config.TextColumn("Fail_Type"),
         }
     )
@@ -514,18 +509,15 @@ def render_regression_alert(df, fail_df):
         lambda r: 'NEW' if r['prev'] == 0 else ('WORSE' if r['latest'] > r['prev'] else ''),
         axis=1)
     alerts = merged[merged['상태'].isin(['NEW', 'WORSE'])].copy()
-    alerts['우선순위'] = alerts['Keyword'].apply(
-        lambda k: KEYWORD_DOMAIN_MAP.get(k, {}).get('priority', '?'))
     alerts['검토영역'] = alerts['Keyword'].apply(
         lambda k: KEYWORD_DOMAIN_MAP.get(k, {}).get('area', '?'))
 
-    priority_order = {'CRITICAL': 0, 'HIGH': 1, 'MID': 2}
-    alerts['_sort'] = alerts['우선순위'].map(priority_order).fillna(99)
-    alerts = alerts.sort_values(['_sort', 'latest'], ascending=[True, False])
+    # Fail 건수 기준 정렬 (많은 게 위로)
+    alerts = alerts.sort_values('latest', ascending=False)
 
-    n_critical = (alerts['우선순위'] == 'CRITICAL').sum()
-    n_high = (alerts['우선순위'] == 'HIGH').sum()
-    n_mid = (alerts['우선순위'] == 'MID').sum()
+    n_new = (alerts['상태'] == 'NEW').sum()
+    n_worse = (alerts['상태'] == 'WORSE').sum()
+    total_fail_increase = (alerts['latest'] - alerts['prev']).sum()
 
     st.markdown(f"**최신 빌드 {latest_build}  vs  이전 빌드 {prev_build}** 비교")
 
@@ -534,14 +526,14 @@ def render_regression_alert(df, fail_df):
         st.markdown("##### 🚨 전체 알람")
         st.markdown(f"### :red[**{len(alerts)}건**]")
     with col2:
-        st.markdown("##### 🔴 CRITICAL")
-        st.markdown(f"### :red[**{n_critical}건**]")
+        st.markdown("##### 🆕 NEW (신규)")
+        st.markdown(f"### :red[**{n_new}건**]")
     with col3:
-        st.markdown("##### 🟠 HIGH")
-        st.markdown(f"### :orange[**{n_high}건**]")
+        st.markdown("##### 📈 WORSE (악화)")
+        st.markdown(f"### :orange[**{n_worse}건**]")
     with col4:
-        st.markdown("##### 🟡 MID")
-        st.markdown(f"### :blue[**{n_mid}건**]")
+        st.markdown("##### ⚠️ Fail 증가")
+        st.markdown(f"### :blue[**+{total_fail_increase}건**]")
     st.markdown("---")
 
     alert_rows = []
@@ -555,7 +547,7 @@ def render_regression_alert(df, fail_df):
             'Fail_Type': row['Keyword'],
             '이전 건수': row['prev'],
             '현재 건수': row['latest'],
-            '우선순위': row['우선순위'],
+            '증가': int(row['latest']) - int(row['prev']),
             '검토 영역': row['검토영역'],
             '영상': video_link
         })
@@ -787,13 +779,10 @@ def render_full_statistics(df, fail_df):
             st.markdown(f"- **{r}**: {c:,}건 ({pct:.1f}%)")
     
     with col2:
-        st.markdown("##### 🐛 주요 Fail_Type")
+        st.markdown("##### 🐛 주요 Fail_Type (TOP 5)")
         top_kw = fail_df['Keyword'].value_counts().head(5)
-        for kw, c in top_kw.items():
-            priority = KEYWORD_DOMAIN_MAP.get(kw, {}).get('priority', '?')
-            color_map = {'CRITICAL': '🔴', 'HIGH': '🟠', 'MID': '🟡'}
-            icon = color_map.get(priority, '⚪')
-            st.markdown(f"- {icon} **{kw}**: {c}건 ({priority})")
+        for i, (kw, c) in enumerate(top_kw.items(), 1):
+            st.markdown(f"- **{i}위 {kw}**: {c}건")
 
 
 
@@ -1050,11 +1039,31 @@ def render_data_upload():
 
 
 # ==============================================================================
-# 📥 메뉴 5: 보고서 생성 (월 선택 + 페이지 맞춤)
+# 📥 메뉴 5: 보고서 생성 (이력 저장 + 선택 삭제)
 # ==============================================================================
 def render_report_generator(df, fail_df):
     st.markdown("### 📥 주간 보고서 자동 생성")
     st.caption("월 단위로 데이터를 선택해 회사 표준 SQA Quality Review PPT를 자동 생성합니다.")
+    
+    # 보고서 이력 세션 초기화
+    if 'report_history' not in st.session_state:
+        st.session_state.report_history = []  # [{filename, month, n_data, generated_at, ppt_bytes}, ...]
+    if 'report_delete_selection' not in st.session_state:
+        st.session_state.report_delete_selection = []
+    if 'report_result' not in st.session_state:
+        st.session_state.report_result = None
+    
+    # 이전 결과 팝업 표시
+    if st.session_state.report_result:
+        result = st.session_state.report_result
+        if result['status'] == 'success':
+            st.success(f"✅ **보고서 생성 완료** — {result['message']}")
+            st.balloons()
+        elif result['status'] == 'delete':
+            st.success(f"🗑️ **삭제 완료** — {result['message']}")
+        elif result['status'] == 'error':
+            st.error(f"❌ **생성 실패** — {result['message']}")
+        st.session_state.report_result = None
     
     # 데이터에서 사용 가능한 월 목록 추출
     df_copy = df.copy()
@@ -1125,22 +1134,121 @@ def render_report_generator(df, fail_df):
         with st.spinner("📝 PPT 생성 중... (약 3~5초)"):
             try:
                 ppt_buffer = generate_ppt_report(monthly_df, monthly_fail, selected_month)
-                st.success("✅ 보고서 생성 완료!")
+                ppt_bytes = ppt_buffer.getvalue()
                 
-                # 다운로드 버튼
                 filename = f"SQA_Quality_Review_{selected_month.year}_{selected_month.month:02d}.pptx"
-                st.download_button(
-                    label="📥 PPT 다운로드",
-                    data=ppt_buffer,
-                    file_name=filename,
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    use_container_width=True
-                )
-                st.info(f"💡 파일명: `{filename}`")
+                
+                # 보고서 이력에 저장
+                st.session_state.report_history.append({
+                    'filename': filename,
+                    'month_str': selected_month_str,
+                    'n_data': len(monthly_df),
+                    'n_fail': len(monthly_fail),
+                    'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'ppt_bytes': ppt_bytes
+                })
+                st.session_state.report_delete_selection = [False] * len(st.session_state.report_history)
+                
+                st.session_state.report_result = {
+                    'status': 'success',
+                    'message': f"`{filename}` 생성 완료 (분석 데이터: {len(monthly_df):,}건). 아래 이력에서 다운로드하세요."
+                }
+                st.rerun()
             except Exception as e:
-                st.error(f"❌ 보고서 생성 실패: {e}")
+                st.session_state.report_result = {
+                    'status': 'error',
+                    'message': f"보고서 생성 실패: {str(e)}"
+                }
                 import traceback
                 st.code(traceback.format_exc())
+                st.rerun()
+    
+    # ===== 📜 보고서 이력 (체크박스 + 선택 삭제 + 다운로드) =====
+    if st.session_state.report_history:
+        st.markdown("---")
+        st.markdown("#### 📜 생성한 보고서 이력")
+        st.caption("다운로드 또는 체크박스로 삭제할 수 있습니다.")
+        
+        # 선택 상태 동기화
+        if len(st.session_state.report_delete_selection) != len(st.session_state.report_history):
+            st.session_state.report_delete_selection = [False] * len(st.session_state.report_history)
+        
+        # 헤더
+        col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns([0.7, 2.5, 1.2, 1.8, 1.5])
+        with col_h1:
+            st.markdown("**선택**")
+        with col_h2:
+            st.markdown("**파일명**")
+        with col_h3:
+            st.markdown("**기준 월**")
+        with col_h4:
+            st.markdown("**생성 시각**")
+        with col_h5:
+            st.markdown("**다운로드**")
+        
+        # 각 항목
+        for i, info in enumerate(st.session_state.report_history):
+            col1, col2, col3, col4, col5 = st.columns([0.7, 2.5, 1.2, 1.8, 1.5])
+            with col1:
+                checked = st.checkbox(
+                    f"선택 {i+1}",
+                    key=f"report_check_{i}",
+                    value=st.session_state.report_delete_selection[i],
+                    label_visibility="collapsed"
+                )
+                st.session_state.report_delete_selection[i] = checked
+            with col2:
+                st.markdown(f"`{info['filename']}`")
+            with col3:
+                st.markdown(info['month_str'])
+            with col4:
+                st.markdown(info['generated_at'])
+            with col5:
+                st.download_button(
+                    label="📥 다운로드",
+                    data=info['ppt_bytes'],
+                    file_name=info['filename'],
+                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    key=f"download_report_{i}",
+                    use_container_width=True
+                )
+        
+        st.markdown("")
+        
+        # 선택된 개수
+        n_selected = sum(st.session_state.report_delete_selection)
+        n_total = len(st.session_state.report_history)
+        
+        # 액션 버튼 2개
+        btn_col1, btn_col2 = st.columns(2)
+        
+        with btn_col1:
+            if st.button("☑️ 전체 선택", use_container_width=True, key="report_select_all"):
+                st.session_state.report_delete_selection = [True] * n_total
+                st.rerun()
+        
+        with btn_col2:
+            disabled = n_selected == 0
+            label = f"🗑️ 선택 삭제 ({n_selected}개)" if n_selected > 0 else "🗑️ 선택 삭제 (0개)"
+            if st.button(label, type="primary" if not disabled else "secondary",
+                         use_container_width=True, disabled=disabled, key="report_delete"):
+                indices_to_delete = sorted(
+                    [i for i, sel in enumerate(st.session_state.report_delete_selection) if sel],
+                    reverse=True
+                )
+                deleted_names = []
+                for idx in indices_to_delete:
+                    deleted_names.append(st.session_state.report_history[idx]['filename'])
+                    del st.session_state.report_history[idx]
+                    del st.session_state.report_delete_selection[idx]
+                
+                st.session_state.report_result = {
+                    'status': 'delete',
+                    'message': f"{len(deleted_names)}개 보고서 삭제됨: {', '.join(deleted_names[:3])}{'...' if len(deleted_names) > 3 else ''}"
+                }
+                st.rerun()
+
+
 
 
 def generate_ppt_report(df, fail_df, selected_month):
@@ -1376,12 +1484,10 @@ def generate_ppt_report(df, fail_df, selected_month):
     
     fail_df_copy = fail_df.copy()
     if len(fail_df_copy) > 0:
-        fail_df_copy['priority'] = fail_df_copy['Keyword'].apply(
-            lambda k: KEYWORD_DOMAIN_MAP.get(k, {}).get('priority', '?'))
-        priority_order = {'CRITICAL': 0, 'HIGH': 1, 'MID': 2}
-        fail_df_copy['_sort'] = fail_df_copy['priority'].map(priority_order).fillna(99)
-        # 최대 7개로 제한 (페이지 맞춤)
-        fail_df_copy = fail_df_copy.sort_values(['_sort', 'Build_Num'], ascending=[True, False]).head(7)
+        # Fail 건수 기준 정렬 (많은 게 위로)
+        kw_counts = fail_df['Keyword'].value_counts().to_dict()
+        fail_df_copy['_sort'] = fail_df_copy['Keyword'].map(kw_counts).fillna(0)
+        fail_df_copy = fail_df_copy.sort_values(['_sort', 'Build_Num'], ascending=[False, False]).head(7)
         
         rows = len(fail_df_copy) + 1
         available_height = 4.8
@@ -1402,9 +1508,7 @@ def generate_ppt_report(df, fail_df, selected_month):
             set_cell(table.cell(r, 1), row.Test_Item, size=8, bg=bg)
             set_cell(table.cell(r, 2), f"R00.0.{row.Build_Num}", size=8, bg=bg, align=PP_ALIGN.CENTER)
             set_cell(table.cell(r, 3), f"{row.Model} / {row.IC}", size=8, bg=bg, align=PP_ALIGN.CENTER)
-            priority = row.priority
-            kw_color = RPT_CRITICAL if priority == 'CRITICAL' else (RPT_HIGH if priority == 'HIGH' else RPT_MID)
-            set_cell(table.cell(r, 4), row.Keyword, size=8, bold=True, bg=bg, color=kw_color, align=PP_ALIGN.CENTER)
+            set_cell(table.cell(r, 4), row.Keyword, size=8, bold=True, bg=bg, color=RPT_CRITICAL, align=PP_ALIGN.CENTER)
             desc = str(row.Fail_Description)[:80] if pd.notna(row.Fail_Description) else "-"
             set_cell(table.cell(r, 5), desc, size=7, bg=bg)
     else:
@@ -1419,27 +1523,26 @@ def generate_ppt_report(df, fail_df, selected_month):
     
     if len(fail_df) > 0:
         fail_df_copy2 = fail_df.copy()
-        fail_df_copy2['priority'] = fail_df_copy2['Keyword'].apply(
-            lambda k: KEYWORD_DOMAIN_MAP.get(k, {}).get('priority', '?'))
         fail_df_copy2['action'] = fail_df_copy2['Keyword'].apply(
             lambda k: KEYWORD_DOMAIN_MAP.get(k, {}).get('area', '?'))
-        priority_order = {'CRITICAL': 0, 'HIGH': 1, 'MID': 2}
-        fail_df_copy2['_sort'] = fail_df_copy2['priority'].map(priority_order).fillna(99)
+        # Fail 건수 기준 정렬 (많은 게 위로)
+        kw_counts = fail_df['Keyword'].value_counts().to_dict()
+        fail_df_copy2['_sort'] = fail_df_copy2['Keyword'].map(kw_counts).fillna(0)
         # 최대 7개로 제한
         unique_actions = fail_df_copy2.drop_duplicates(subset=['Model', 'Keyword']) \
-                                      .sort_values(['_sort', 'Build_Num'], ascending=[True, False]) \
+                                      .sort_values(['_sort', 'Build_Num'], ascending=[False, False]) \
                                       .head(7)
         
         rows = len(unique_actions) + 1
         available_height = 4.8
         row_height = min(0.55, available_height / rows)
         
-        table = s7.shapes.add_table(rows, 6, Inches(0.4), Inches(2),
+        table = s7.shapes.add_table(rows, 5, Inches(0.4), Inches(2),
                                      Inches(12.6), Inches(row_height * rows)).table
-        widths = [0.6, 1.2, 2.0, 1.5, 1.0, 6.3]
+        widths = [0.6, 1.5, 2.5, 2.0, 6.0]
         for i, w in enumerate(widths):
             table.columns[i].width = Inches(w)
-        headers = ['No.', '발생 빌드', '모델', 'Fail Type', '우선순위', 'Action Item']
+        headers = ['No.', '발생 빌드', '모델', 'Fail Type', 'Action Item']
         for c, h in enumerate(headers):
             set_cell(table.cell(0, c), h, bold=True, size=10,
                      color=RPT_HEADER_FG, bg=RPT_HEADER_BG, align=PP_ALIGN.CENTER)
@@ -1448,11 +1551,8 @@ def generate_ppt_report(df, fail_df, selected_month):
             set_cell(table.cell(r, 0), r, size=9, bg=bg, align=PP_ALIGN.CENTER)
             set_cell(table.cell(r, 1), f"R00.0.{row.Build_Num}", size=9, bg=bg, align=PP_ALIGN.CENTER)
             set_cell(table.cell(r, 2), row.Model, size=9, bg=bg, align=PP_ALIGN.CENTER)
-            priority = row.priority
-            kw_color = RPT_CRITICAL if priority == 'CRITICAL' else (RPT_HIGH if priority == 'HIGH' else RPT_MID)
-            set_cell(table.cell(r, 3), row.Keyword, size=9, bold=True, bg=bg, color=kw_color, align=PP_ALIGN.CENTER)
-            set_cell(table.cell(r, 4), priority, size=9, bold=True, bg=bg, color=kw_color, align=PP_ALIGN.CENTER)
-            set_cell(table.cell(r, 5), row.action + " 검토", size=9, bg=bg, bold=True)
+            set_cell(table.cell(r, 3), row.Keyword, size=9, bold=True, bg=bg, color=RPT_CRITICAL, align=PP_ALIGN.CENTER)
+            set_cell(table.cell(r, 4), row.action + " 검토", size=9, bg=bg, bold=True)
     else:
         add_text(s7, "이번 달 Action Item이 없습니다. ✅", 0.4, 3, 10, 0.4,
                  size=16, bold=True, color=RPT_MID)
@@ -1475,17 +1575,14 @@ def generate_ppt_report(df, fail_df, selected_month):
         merged['상태'] = merged.apply(
             lambda r: 'NEW' if r['prev'] == 0 else ('WORSE' if r['latest'] > r['prev'] else ''), axis=1)
         alerts = merged[merged['상태'].isin(['NEW', 'WORSE'])].copy()
-        alerts['priority'] = alerts['Keyword'].apply(
-            lambda k: KEYWORD_DOMAIN_MAP.get(k, {}).get('priority', '?'))
-        priority_order = {'CRITICAL': 0, 'HIGH': 1, 'MID': 2}
-        alerts['_sort'] = alerts['priority'].map(priority_order).fillna(99)
-        # 최대 8개로 제한
-        alerts = alerts.sort_values(['_sort', 'latest'], ascending=[True, False]).head(8)
+        # Fail 건수 기준 정렬 (많은 게 위로)
+        alerts = alerts.sort_values('latest', ascending=False).head(8)
         
         add_text(s8, f"빌드 R00.0.{latest_build}에서 신규/악화 결함 자동 검출", 0.4, 1.4, 10, 0.4,
                  size=14, bold=True, color=RPT_TITLE)
-        n_critical = (alerts['priority'] == 'CRITICAL').sum()
-        add_text(s8, f"🚨 전체 {len(alerts)}건  ·  CRITICAL {n_critical}건 (즉시 패치 검토 필요)", 0.4, 1.85, 12, 0.4,
+        n_new = (alerts['상태'] == 'NEW').sum()
+        n_worse = (alerts['상태'] == 'WORSE').sum()
+        add_text(s8, f"🚨 전체 {len(alerts)}건  ·  신규 {n_new}건  ·  악화 {n_worse}건", 0.4, 1.85, 12, 0.4,
                  size=11, color=RPT_CRITICAL)
         
         if len(alerts) > 0:
@@ -1507,9 +1604,7 @@ def generate_ppt_report(df, fail_df, selected_month):
                 state_color = RPT_CRITICAL if row.상태 == 'NEW' else RPT_HIGH
                 set_cell(table.cell(r, 0), row.상태, size=9, bold=True, color=state_color, bg=bg, align=PP_ALIGN.CENTER)
                 set_cell(table.cell(r, 1), row.Model, size=9, bg=bg, align=PP_ALIGN.CENTER)
-                priority = row.priority
-                kw_color = RPT_CRITICAL if priority == 'CRITICAL' else (RPT_HIGH if priority == 'HIGH' else RPT_MID)
-                set_cell(table.cell(r, 2), row.Keyword, size=9, bold=True, color=kw_color, bg=bg, align=PP_ALIGN.CENTER)
+                set_cell(table.cell(r, 2), row.Keyword, size=9, bold=True, color=RPT_CRITICAL, bg=bg, align=PP_ALIGN.CENTER)
                 set_cell(table.cell(r, 3), row.prev, size=9, bg=bg, align=PP_ALIGN.CENTER)
                 set_cell(table.cell(r, 4), row.latest, size=9, bold=True, bg=bg, align=PP_ALIGN.CENTER)
                 area = KEYWORD_DOMAIN_MAP.get(row.Keyword, {}).get('area', '?')
@@ -1550,23 +1645,21 @@ def generate_ppt_report(df, fail_df, selected_month):
     set_cell(table.cell(2, 0), "주요 이슈", bold=True, size=11, bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER)
     if len(fail_df) > 0:
         top_kw = fail_df['Keyword'].value_counts().head(3)
-        issue_text = "Top 3 Fail Type:\n"
-        for kw, cnt in top_kw.items():
-            priority = KEYWORD_DOMAIN_MAP.get(kw, {}).get('priority', '?')
-            issue_text += f"• {kw} ({cnt}건, {priority})\n"
+        issue_text = "Top 3 Fail Type (건수 기준):\n"
+        for i, (kw, cnt) in enumerate(top_kw.items(), 1):
+            issue_text += f"• {i}위 {kw}: {cnt}건\n"
     else:
         issue_text = "이번 달 Fail 이슈 없음 ✅"
     set_cell(table.cell(2, 1), issue_text.strip(), size=10)
     
     set_cell(table.cell(3, 0), "Action Item", bold=True, size=11, bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER)
     if len(fail_df) > 0:
-        n_crit = sum(1 for kw in fail_df['Keyword'].unique() 
-                     if KEYWORD_DOMAIN_MAP.get(kw, {}).get('priority') == 'CRITICAL')
-        n_h = sum(1 for kw in fail_df['Keyword'].unique() 
-                  if KEYWORD_DOMAIN_MAP.get(kw, {}).get('priority') == 'HIGH')
-        action_text = f"• CRITICAL Fail Type: {n_crit}종 (즉시 검토)\n"
-        action_text += f"• HIGH Fail Type: {n_h}종 (우선 검토)\n"
-        action_text += f"• 다음 빌드에서 회귀 모니터링 필수"
+        top_3 = fail_df['Keyword'].value_counts().head(3)
+        action_text = "주요 검토 항목 (Fail 빈도 TOP 3):\n"
+        for i, (kw, cnt) in enumerate(top_3.items(), 1):
+            area = KEYWORD_DOMAIN_MAP.get(kw, {}).get('area', '?')
+            action_text += f"• {i}위 {kw} ({cnt}건): {area} 검토\n"
+        action_text += "• 다음 빌드에서 회귀 모니터링 필수"
     else:
         action_text = "별도 Action Item 없음"
     set_cell(table.cell(3, 1), action_text, size=10)
