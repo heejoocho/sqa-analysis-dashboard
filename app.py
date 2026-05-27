@@ -496,29 +496,91 @@ def render_full_insights(df, fail_df):
     plt.close(fig)
     st.markdown("---")
 
-    # 우선순위 매트릭스
-    st.markdown("### 5️⃣ Severity × Priority 매트릭스")
-    fig, ax = plt.subplots(figsize=(10, 7))
+    # 발생 횟수 × 영향 모델 수 버블 차트
+    st.markdown("### 5️⃣ Fail_Type 영향 분석 (발생 횟수 × 영향 모델 수)")
+    st.caption("오른쪽 위에 있을수록 자주 발생하고 많은 모델에 영향 → 우선 검토 대상")
+    
+    # 각 Fail_Type별 통계
+    bubble_data = []
     for kw in KEYWORDS_ALL:
-        severity = SEVERITY_MAP[kw]
-        priority = KEYWORD_DOMAIN_MAP[kw]['priority']
-        color = {'CRITICAL': '#e74c3c', 'HIGH': '#f39c12', 'MID': '#3498db'}[priority]
-        size = severity * 200
-        ax.scatter(severity, severity, s=size, c=color, alpha=0.6,
-                   edgecolors='black', linewidths=1)
-        ax.annotate(kw, (severity, severity),
-                    xytext=(10, 10), textcoords='offset points', fontsize=10)
-    ax.axhline(y=3.5, color='gray', linestyle='--', alpha=0.5)
-    ax.axvline(x=3.5, color='gray', linestyle='--', alpha=0.5)
-    ax.set_xlabel('Severity (심각도)', fontsize=12)
-    ax.set_ylabel('Priority (우선순위)', fontsize=12)
-    ax.set_title('Severity × Priority 매트릭스', fontsize=14, fontweight='bold')
-    ax.set_xlim(0, 6)
-    ax.set_ylim(0, 6)
-    ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
+        kw_fails = fail_df[fail_df['Keyword'] == kw]
+        if len(kw_fails) > 0:
+            bubble_data.append({
+                'keyword': kw,
+                'count': len(kw_fails),
+                'n_models': kw_fails['Model'].nunique()
+            })
+    
+    if bubble_data:
+        max_count = max(b['count'] for b in bubble_data)
+        max_models = max(b['n_models'] for b in bubble_data)
+        
+        fig, ax = plt.subplots(figsize=(12, 7))
+        colors = plt.cm.YlOrRd([b['count']/max_count for b in bubble_data])
+        
+        for i, b in enumerate(bubble_data):
+            size = 300 + (b['count'] / max_count) * 2700
+            ax.scatter(b['count'], b['n_models'], s=size, c=[colors[i]],
+                       alpha=0.65, edgecolors='black', linewidths=1.5, zorder=3)
+        
+        # 라벨 (adjust_text 없이 수동으로 위치 분산)
+        # y값 기준 정렬해서 가까운 것끼리 위치 어긋나게
+        # 라벨 위치 분산 (각 버블마다 다른 방향)
+        sorted_bubbles = sorted(bubble_data, key=lambda b: (b['n_models'], b['count']))
+        # 8개 방향 분산
+        directions = [
+            (25, 25), (25, -25), (-25, 25), (-25, -25),
+            (35, 5), (-35, 5), (5, 35), (5, -35)
+        ]
+        for i, b in enumerate(sorted_bubbles):
+            offset_x, offset_y = directions[i % len(directions)]
+            ha = 'left' if offset_x > 0 else 'right' 
+            
+            ax.annotate(
+                f"{b['keyword']}\n({b['count']}건, {b['n_models']}개 모델)",
+                (b['count'], b['n_models']),
+                xytext=(offset_x, offset_y),
+                textcoords='offset points',
+                fontsize=9, fontweight='bold', ha=ha,
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                          edgecolor='#cccccc', alpha=0.9),
+                zorder=4,
+                arrowprops=dict(arrowstyle='-', color='#888888', lw=0.5, alpha=0.5)
+            )
+        
+        # 평균선
+        avg_count = sum(b['count'] for b in bubble_data) / len(bubble_data)
+        avg_models = sum(b['n_models'] for b in bubble_data) / len(bubble_data)
+        ax.axhline(y=avg_models, color='gray', linestyle='--', alpha=0.4,
+                   label=f'평균 영향 모델 ({avg_models:.0f}개)')
+        ax.axvline(x=avg_count, color='gray', linestyle='--', alpha=0.4,
+                   label=f'평균 발생 횟수 ({avg_count:.0f}건)')
+        
+        ax.set_xlabel('발생 횟수 (Fail 건수)', fontsize=12, fontweight='bold')
+        ax.set_ylabel('영향 모델 수', fontsize=12, fontweight='bold')
+        ax.set_title('Fail_Type 영향 분석',
+                     fontsize=14, fontweight='bold', pad=15)
+        ax.set_xlim(0, max_count * 1.3)
+        ax.set_ylim(0, max_models * 1.3)
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='lower right', fontsize=9)
+        
+        # 사분면 안내
+        ax.text(max_count * 1.25, max_models * 1.25, '★ 자주 + 광범위\n우선 검토',
+                fontsize=10, ha='right', va='top', color='#c0392b', fontweight='bold',
+                bbox=dict(boxstyle='round,pad=0.4', facecolor='#FFF5F5', edgecolor='#e74c3c'))
+        
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+        
+        # 표
+        bubble_df = pd.DataFrame(bubble_data).sort_values('count', ascending=False).reset_index(drop=True)
+        bubble_df.insert(0, '순위', range(1, len(bubble_df) + 1))
+        bubble_df.columns = ['순위', 'Fail_Type', '발생 횟수', '영향 모델 수']
+        st.dataframe(bubble_df, use_container_width=True, hide_index=True)
+        
+        st.info("💡 **활용**: 자주 발생하면서 많은 모델에 영향을 주는 Fail_Type을 우선 검토하세요. 오른쪽 위 사분면이 가장 시급한 영역입니다.")
 
 
 # ==============================================================================
