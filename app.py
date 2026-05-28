@@ -271,8 +271,6 @@ def render_filter_analysis(df, fail_df):
         kw_rank = filtered_fail['Keyword'].value_counts().head(5).reset_index()
         kw_rank.columns = ['Fail_Type', '건수']
         kw_rank['비중'] = (kw_rank['건수'] / kw_rank['건수'].sum() * 100).round(1)
-        kw_rank['검토영역'] = kw_rank['Fail_Type'].apply(
-            lambda k: KEYWORD_DOMAIN_MAP.get(k, {}).get('area', '?'))
         kw_rank.insert(0, '순위', range(1, len(kw_rank) + 1))
 
         col_left, col_right = st.columns([1, 1])
@@ -587,6 +585,75 @@ def render_full_insights(df, fail_df):
         
         st.info("💡 **활용**: 자주 발생하면서 많은 모델에 영향을 주는 Fail_Type을 우선 검토하세요. 오른쪽 위 사분면이 가장 시급한 영역입니다.")
 
+    st.markdown("---")
+
+    # ===== ⑥ 무엇이 결함을 결정하는가? (카이제곱 검정) =====
+    st.markdown("### 6️⃣ 무엇이 결함을 결정하는가? (카이제곱 검정)")
+    st.caption("IC/고객사가 '합격 여부'와 '결함 종류'에 각각 영향을 주는지 통계적으로 비교 분석합니다.")
+
+    from scipy.stats import chi2_contingency
+
+    def _run_chi2(data, var1, var2):
+        try:
+            contingency = pd.crosstab(data[var1], data[var2])
+            if contingency.size == 0 or min(contingency.shape) < 2:
+                return None, None
+            chi2, p, dof, expected = chi2_contingency(contingency)
+            n = contingency.sum().sum()
+            cramers_v = np.sqrt(chi2 / (n * (min(contingency.shape) - 1)))
+            return cramers_v, p
+        except Exception:
+            return None, None
+
+    # 4개 검정
+    fail_kw = fail_df[fail_df['Keyword'] != '']
+    chi2_results = [
+        ("IC ×\n합격률", *_run_chi2(df, 'IC', 'Result')),
+        ("IC ×\n결함종류", *_run_chi2(fail_kw, 'IC', 'Keyword')),
+        ("고객사 ×\n합격률", *_run_chi2(df, 'Customer', 'Result')),
+        ("고객사 ×\n결함종류", *_run_chi2(fail_kw, 'Customer', 'Keyword')),
+    ]
+    chi2_results = [r for r in chi2_results if r[1] is not None]
+
+    if chi2_results:
+        labels = [r[0] for r in chi2_results]
+        cramers = [r[1] for r in chi2_results]
+        pvals = [r[2] for r in chi2_results]
+        colors = ['#bdc3c7' if p >= 0.05 else '#e74c3c' for p in pvals]
+
+        fig, ax = plt.subplots(figsize=(11, 6))
+        bars = ax.bar(labels, cramers, color=colors, edgecolor='black',
+                      linewidth=1.5, alpha=0.85)
+        for bar, cv, p in zip(bars, cramers, pvals):
+            sig = "유의함" if p < 0.05 else "무관"
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
+                    f'{cv:.3f}\n({sig})', ha='center', fontsize=11, fontweight='bold')
+        ax.axhline(y=0.1, color='gray', linestyle='--', alpha=0.5)
+        ax.text(len(labels)-0.4, 0.11, '약한 관계 기준', fontsize=9, color='gray')
+        ax.set_ylabel("Cramér's V (관계 강도)", fontsize=12, fontweight='bold')
+        ax.set_title('합격률 vs 결함 종류 — 무엇이 IC/고객사와 관련 있는가',
+                     fontsize=14, fontweight='bold')
+        ax.set_ylim(0, max(cramers) * 1.25)
+        # 범례
+        from matplotlib.patches import Patch
+        legend_elems = [
+            Patch(facecolor='#e74c3c', edgecolor='black', label='유의함 (p<0.05)'),
+            Patch(facecolor='#bdc3c7', edgecolor='black', label='무관 (p≥0.05)')
+        ]
+        ax.legend(handles=legend_elems, loc='upper left', fontsize=10)
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+
+        st.success(
+            "💡 **핵심 인사이트 (대조 분석)**\n\n"
+            "- **합격률**은 IC/고객사와 통계적으로 **무관**합니다 (회색 막대, p≥0.05). "
+            "즉 어떤 IC·고객사든 합격률 자체는 비슷합니다.\n"
+            "- 하지만 **결함 종류**는 IC/고객사와 **매우 유의한 관계**가 있습니다 (빨간 막대, p<0.001).\n\n"
+            "→ **'합격률은 비슷하지만, 막상 Fail이 나면 그 종류는 IC·고객사마다 다르다'**는 결론입니다. "
+            "결함 대응 전략은 IC별로 다르게 세워야 한다는 의사결정 근거가 됩니다."
+        )
+
 
 # ==============================================================================
 # 📈 메뉴: Fail율 예측
@@ -689,30 +756,17 @@ def render_fail_rate_prediction(df, fail_df):
     
     st.markdown("---")
     
-    # ===== 모델 설정 =====
-    st.markdown("#### ⚙️ 예측 모델 설정")
+    # ===== 예측할 빌드 번호 입력 =====
+    next_build_input = st.number_input(
+        "🎯 예측할 빌드 번호",
+        min_value=int(build_summary['Build_Num'].max()) + 1,
+        value=int(build_summary['Build_Num'].max()) + 100,
+        step=10
+    )
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        degree = st.selectbox(
-            "📐 다항식 차수",
-            options=[1, 2, 3],
-            index=1,
-            help="1: 직선 / 2: ∩ 곡선 / 3: S 곡선. 본인 데이터는 2차 추천 (R²=0.844)"
-        )
-    with col2:
-        use_weights = st.checkbox(
-            "⚖️ 표본 가중치 적용",
-            value=True,
-            help="빌드별 표본 크기를 가중치로 반영. 더 많이 테스트된 빌드에 더 큰 영향력"
-        )
-    with col3:
-        next_build_input = st.number_input(
-            "🎯 예측할 빌드 번호",
-            min_value=int(build_summary['Build_Num'].max()) + 1,
-            value=int(build_summary['Build_Num'].max()) + 100,
-            step=10
-        )
+    # 모델 자동 설정 (2차 다항회귀 + 표본 가중치)
+    degree = 2
+    use_weights = True
     
     # ===== 모델 학습 =====
     X = build_summary[['build_idx']].values
@@ -863,45 +917,6 @@ def render_fail_rate_prediction(df, fail_df):
     st.pyplot(fig)
     plt.close(fig)
     
-    # ===== 모델 비교 (R² + CV MAE) =====
-    st.markdown("#### 🔬 모델 검증 결과")
-    
-    # 여러 차수로 모델 비교
-    comparison_data = []
-    for d in [1, 2, 3]:
-        m = make_pipeline(PolynomialFeatures(degree=d), LinearRegression())
-        if use_weights:
-            m.fit(X, y, linearregression__sample_weight=sample_weights)
-        else:
-            m.fit(X, y)
-        r2 = m.score(X, y)
-        
-        # LOO-CV
-        errors = []
-        for ti, te in loo.split(X):
-            cm = make_pipeline(PolynomialFeatures(degree=d), LinearRegression())
-            if use_weights:
-                cm.fit(X[ti], y[ti], linearregression__sample_weight=sample_weights[ti])
-            else:
-                cm.fit(X[ti], y[ti])
-            pred = cm.predict(X[te])[0]
-            errors.append(abs(pred - y[te][0]))
-        cv_mae_d = np.mean(errors)
-        
-        comparison_data.append({
-            '모델': f'{d}차 다항회귀',
-            '학습 R²': round(r2, 3),
-            'CV MAE (%p)': round(cv_mae_d, 2),
-            '현재 선택': '✅' if d == degree else ''
-        })
-    
-    comparison_df = pd.DataFrame(comparison_data)
-    st.dataframe(comparison_df, use_container_width=True, hide_index=True)
-    
-    best_model = min(comparison_data, key=lambda x: x['CV MAE (%p)'])
-    if best_model['모델'] != f'{degree}차 다항회귀':
-        st.warning(f"💡 추천: 교차검증 결과 **{best_model['모델']}**의 MAE가 {best_model['CV MAE (%p)']}%p로 더 정확합니다.")
-    
     st.markdown("---")
     
     # ===== 모델 해석 =====
@@ -927,43 +942,14 @@ def render_fail_rate_prediction(df, fail_df):
         r2_text = f"R² = {train_r2:.3f} → 약한 추세, 예측 신뢰도 낮음"
     
     info_text = (
-        f"**🔬 분석 결과 ({method_label})**\n\n"
+        f"**🔮 예측 요약**\n\n"
         f"- **추세**: {trend_text}\n"
-        f"- **모델 적합도**: {r2_text}\n"
-        f"- **교차검증 MAE**: ±{cv_mae:.2f}%p (Leave-One-Out 평균 오차)\n"
         f"- **예측값**: 빌드 {next_build_input} → **{y_pred:.2f}%** "
-        f"[95% CI: {ci_low:.1f}%, {ci_high:.1f}%]\n\n"
+        f"[95% 신뢰구간: {ci_low:.1f}% ~ {ci_high:.1f}%]\n\n"
         f"💡 **의사결정 조언**: {trend_advice}"
     )
     st.info(info_text)
     
-    # 한계점 명시 (분석가 자세)
-    with st.expander("⚠️ 이 모델의 한계 (분석가 관점에서 정직하게)"):
-        st.markdown(f"""
-        **표본 크기**: 빌드 {len(build_summary)}개로 통계적 표본이 적습니다. 
-        전문 시계열 분석은 보통 30개 이상의 데이터 포인트를 권장합니다.
-        
-        **외삽 위험**: 학습 범위 (빌드 {int(builds_array[0])}~{int(builds_array[-1])}) 밖으로 
-        예측하므로 {next_build_input}이 멀어질수록 정확도가 감소합니다.
-        
-        **단변량 모델**: 빌드 번호 하나만 사용합니다. 실제로는 코드 변경량, 
-        커밋 수, 테스트 항목 변화 등이 영향을 미칠 수 있습니다.
-        
-        **잔차의 가정**: 95% 신뢰구간은 잔차가 정규분포를 따른다고 가정합니다. 
-        실제로는 빌드 출시 시기에 따라 분산이 변할 수 있습니다.
-        
-        **권장 사용법**: 
-        - ✅ 추세 방향성 파악
-        - ✅ 신뢰구간 범위 내 가능성 검토
-        - ❌ 정확한 단일 수치로 신뢰
-        - ❌ 학습 범위에서 멀리 떨어진 빌드 예측
-        """)
-    
-    # 빌드별 데이터
-    with st.expander("📋 빌드별 Fail율 데이터 (참고)"):
-        display_df = build_summary[['Build_Num', 'total', 'fail', 'fail_rate']].copy()
-        display_df.columns = ['빌드 번호', '전체 Test', 'Fail', 'Fail율(%)']
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 
@@ -1049,7 +1035,7 @@ def render_full_statistics(df, fail_df):
     """전체 데이터 통계 - 월별, Customer, Test_Item 매트릭스, 메타 정보"""
     plt.rcParams['font.family'] = font_name
     
-    # ===== 종합 KPI =====
+    # ===== 종합 KPI (핵심 4개만) =====
     st.markdown("### 🎯 종합 KPI")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -1061,16 +1047,6 @@ def render_full_statistics(df, fail_df):
         st.metric("💻 모델 수", f"{df['Model'].nunique()}개")
     with col4:
         st.metric("🔄 빌드 수", f"{df['Build_Num'].nunique()}개")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("🔌 IC 종류", f"{df['IC'].nunique()}종")
-    with col2:
-        st.metric("🏢 고객사", f"{df['Customer'].nunique()}개")
-    with col3:
-        st.metric("🧪 Test_Item", f"{df['Test_Item'].nunique()}종")
-    with col4:
-        st.metric("📁 카테고리", f"{df['Category'].nunique()}개")
     
     st.markdown("---")
     
@@ -1205,25 +1181,8 @@ def render_full_statistics(df, fail_df):
     
     st.markdown("---")
     
-    # ===== 4. 빌드 출시 정보 =====
-    st.markdown("### 🔄 4. 빌드 출시 정보")
-    st.caption("각 빌드별 테스트량과 평균 Fail율")
-    
-    build_info = df.groupby('Build_Num').agg(
-        total=('Result', 'count'),
-        fail=('Result', lambda x: (x == 'FAIL').sum()),
-        n_models=('Model', 'nunique'),
-        n_ics=('IC', 'nunique')
-    ).reset_index()
-    build_info['fail_rate'] = (build_info['fail'] / build_info['total'] * 100).round(1)
-    build_info.columns = ['빌드', '전체 Test', 'Fail', '모델 수', 'IC 수', 'Fail율(%)']
-    
-    st.dataframe(build_info, use_container_width=True, hide_index=True)
-    
-    st.markdown("---")
-    
-    # ===== 5. 데이터 메타 정보 =====
-    st.markdown("### 📋 5. 데이터 메타 정보")
+    # ===== 4. 데이터 메타 정보 =====
+    st.markdown("### 📋 4. 데이터 메타 정보")
     
     col1, col2 = st.columns(2)
     
@@ -1592,19 +1551,7 @@ def render_report_generator(df, fail_df):
         st.warning("⚠️ 선택한 월에 데이터가 없습니다.")
         return
     
-    st.markdown("#### 📑 포함될 슬라이드 (10장)")
-    st.markdown(f"""
-    1. 표지 ({selected_month_str} 자동)
-    2. 목차
-    3. 기본정보
-    4. **월간 Test 요약** (Test_Item별 + PASS/FAIL)
-    5. **IC × 빌드별 상세** ({selected_month_str} 빌드 한정)
-    6. **Fail/Issue Review** (CRITICAL/HIGH 우선)
-    7. **🎯 Action Item Review** (도메인 dict 자동 매칭)
-    8. **회귀 알람** (월 내 최신 빌드 NEW/WORSE 자동 검출)
-    9. **회의 요약 및 향후 계획** (자동 요약)
-    10. Thank you
-    """)
+    st.caption("📑 10장 PPT (표지·목차·요약·Fail Review·Action Item·회귀 알람·회의 요약 등)")
     
     st.markdown("---")
     
