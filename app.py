@@ -670,50 +670,51 @@ def render_fail_rate_prediction(df, fail_df):
     st.markdown("### 📈 다음 빌드 Fail율 예측")
     st.caption("과거 빌드 데이터를 학습해 다음 빌드의 Fail율을 예측하고 신뢰구간을 함께 제공합니다.")
     
-    # ===== 예측 대상 필터 =====
-    st.markdown("#### 🎯 예측 대상 선택")
-    st.caption("특정 그룹의 Fail율 추세만 분석할 수 있습니다.")
+    # ===== 예측 대상: 모델 선택 (FW 라인 단위) =====
+    st.markdown("#### 🎯 예측 대상 모델 선택")
+    st.caption("같은 모델은 동일한 FW 라인(기능)이 빌드별로 진화하므로, 모델 단위로 예측해야 의미가 있습니다.")
     
-    col1, col2, col3 = st.columns(3)
+    # 모델별 빌드 수 계산 (4개 이상만 예측 가능)
+    model_build_counts = df.groupby('Model')['Build_Num'].nunique()
+    predictable_models = sorted(model_build_counts[model_build_counts >= 4].index.tolist())
+    
+    if len(predictable_models) == 0:
+        st.warning("⚠️ 예측 가능한 모델이 없습니다 (빌드 4개 이상 필요).")
+        return
+    
+    col1, col2 = st.columns([2, 1])
     with col1:
-        ic_filter = st.selectbox(
-            "🔌 IC",
-            options=["전체"] + sorted(df['IC'].unique().tolist()),
-            key='pred_ic_filter'
+        # 모델 선택 (IC 정보도 함께 표시)
+        model_options = []
+        model_label_map = {}
+        for m in predictable_models:
+            ic = df[df['Model'] == m]['IC'].iloc[0]
+            n_builds = model_build_counts[m]
+            label = f"{m} (IC: {ic}, 빌드 {n_builds}개)"
+            model_options.append(label)
+            model_label_map[label] = m
+        
+        selected_label = st.selectbox(
+            "💻 모델 선택",
+            options=model_options,
+            key='pred_model_filter',
+            help="FW 라인이 동일한 모델 단위로 예측합니다."
         )
+        selected_model = model_label_map[selected_label]
     with col2:
-        customer_filter = st.selectbox(
-            "🏢 Customer",
-            options=["전체"] + sorted(df['Customer'].unique().tolist()),
-            key='pred_customer_filter'
-        )
-    with col3:
-        category_filter = st.selectbox(
-            "📁 Category",
-            options=["전체"] + sorted(df['Category'].unique().tolist()),
-            key='pred_category_filter'
-        )
+        st.write("")
+        st.write("")
+        ic_of_model = df[df['Model'] == selected_model]['IC'].iloc[0]
+        st.info(f"🔌 IC: **{ic_of_model}**")
     
-    # 필터 적용
-    filtered_df = df.copy()
-    active_filters = []
-    if ic_filter != "전체":
-        filtered_df = filtered_df[filtered_df['IC'] == ic_filter]
-        active_filters.append(f"IC={ic_filter}")
-    if customer_filter != "전체":
-        filtered_df = filtered_df[filtered_df['Customer'] == customer_filter]
-        active_filters.append(f"Customer={customer_filter}")
-    if category_filter != "전체":
-        filtered_df = filtered_df[filtered_df['Category'] == category_filter]
-        active_filters.append(f"Category={category_filter}")
+    # 선택 모델로 필터링
+    filtered_df = df[df['Model'] == selected_model].copy()
+    active_filters = [f"Model={selected_model}"]
     
-    if active_filters:
-        st.info(f"🎯 분석 대상: `{' · '.join(active_filters)}` ({len(filtered_df):,}건)")
-    else:
-        st.info(f"🎯 분석 대상: `전체 데이터` ({len(filtered_df):,}건)")
+    st.info(f"🎯 분석 대상: 모델 `{selected_model}` (IC: {ic_of_model}) — 총 {len(filtered_df):,}건")
     
-    if len(filtered_df) < 100:
-        st.warning(f"⚠️ 데이터가 너무 적습니다 ({len(filtered_df)}건). 필터를 완화해주세요.")
+    if len(filtered_df) < 30:
+        st.warning(f"⚠️ 데이터가 너무 적습니다 ({len(filtered_df)}건).")
         return
     
     st.markdown("---")
