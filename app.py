@@ -756,14 +756,6 @@ def render_fail_rate_prediction(df, fail_df):
     
     st.markdown("---")
     
-    # ===== 예측할 빌드 번호 입력 =====
-    next_build_input = st.number_input(
-        "🎯 예측할 빌드 번호",
-        min_value=int(build_summary['Build_Num'].max()) + 1,
-        value=int(build_summary['Build_Num'].max()) + 100,
-        step=10
-    )
-    
     # 모델 자동 설정 (2차 다항회귀 + 표본 가중치)
     degree = 2
     use_weights = True
@@ -781,17 +773,23 @@ def render_fail_rate_prediction(df, fail_df):
     else:
         model.fit(X, y)
     
-    # 예측 (next_build_input은 현재 빌드 인덱스에서 얼마나 떨어졌는지 계산)
+    # ===== 다음 빌드 자동 계산 =====
     builds_array = build_summary['Build_Num'].values
     latest_build = builds_array[-1]
-    # 빌드 번호당 평균 인덱스 증가량
-    build_diff = builds_array[-1] - builds_array[0]
-    idx_diff = len(build_summary) - 1
-    builds_per_idx = build_diff / idx_diff if idx_diff > 0 else 1
-    next_idx = (len(build_summary) - 1) + (next_build_input - latest_build) / builds_per_idx
+    # 과거 빌드 간격의 평균으로 다음 빌드 번호 추정
+    if len(builds_array) > 1:
+        avg_gap = int(np.mean(np.diff(builds_array)))
+    else:
+        avg_gap = 150
+    next_build_input = int(latest_build + avg_gap)
+    
+    # 다음 빌드 = 인덱스 +1 (바로 다음 빌드만 예측)
+    next_idx = len(build_summary)
     
     y_pred = float(model.predict([[next_idx]])[0])
     y_pred = max(0, min(100, y_pred))  # 0~100 범위 제한
+    
+    st.info(f"🎯 **다음 빌드 예측**: 최신 빌드 `{int(latest_build)}` 다음으로 예상되는 빌드 `{next_build_input}` (과거 평균 간격 {avg_gap} 반영)의 Fail율을 예측합니다.")
     
     # R² (학습 데이터)
     train_r2 = model.score(X, y)
@@ -859,32 +857,32 @@ def render_fail_rate_prediction(df, fail_df):
     
     # 회귀선 + 신뢰구간 (학습 구간)
     X_line_idx = np.linspace(0, len(build_summary) - 1, 100).reshape(-1, 1)
-    X_line_build = build_summary['Build_Num'].iloc[0] + X_line_idx * builds_per_idx
+    X_line_build = np.linspace(builds_array[0], builds_array[-1], 100)
     y_line = model.predict(X_line_idx)
     
     # 신뢰구간 음영
-    ax.fill_between(X_line_build.flatten(), 
+    ax.fill_between(X_line_build, 
                      np.maximum(0, y_line - margin), 
                      np.minimum(100, y_line + margin),
                      color='#3498db', alpha=0.15, zorder=2,
                      label=f'95% 신뢰구간 (±{margin:.2f}%p)')
     
-    ax.plot(X_line_build.flatten(), y_line, '-', color='#3498db',
+    ax.plot(X_line_build, y_line, '-', color='#3498db',
             linewidth=2.5, alpha=0.9, zorder=3,
             label=f'{degree}차 다항회귀 (학습)')
     
-    # 예측선 (점선) + 신뢰구간
-    X_pred_idx = np.linspace(len(build_summary) - 1, next_idx, 100).reshape(-1, 1)
-    X_pred_build = build_summary['Build_Num'].iloc[-1] + (X_pred_idx - (len(build_summary) - 1)) * builds_per_idx
+    # 예측선 (점선) + 신뢰구간 — 최신 빌드 → 다음 빌드
+    X_pred_idx = np.linspace(len(build_summary) - 1, next_idx, 50).reshape(-1, 1)
+    X_pred_build = np.linspace(latest_build, next_build_input, 50)
     y_pred_line = model.predict(X_pred_idx)
     
-    ax.fill_between(X_pred_build.flatten(),
+    ax.fill_between(X_pred_build,
                      np.maximum(0, y_pred_line - margin),
                      np.minimum(100, y_pred_line + margin),
                      color='#e74c3c', alpha=0.15, zorder=2)
     
-    ax.plot(X_pred_build.flatten(), y_pred_line, '--', color='#e74c3c',
-            linewidth=2.5, label='예측 (외삽)', zorder=3)
+    ax.plot(X_pred_build, y_pred_line, '--', color='#e74c3c',
+            linewidth=2.5, label='다음 빌드 예측', zorder=3)
     
     # 예측점 (별표)
     ax.scatter([next_build_input], [y_pred],
