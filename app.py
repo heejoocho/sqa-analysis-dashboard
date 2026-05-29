@@ -60,26 +60,11 @@ st.markdown("""
     background-color: var(--bg-cream) !important;
 }
 
-/* === Pretendard 폰트 적용 (텍스트 요소만, 아이콘 제외!) === */
-html, body,
-.stApp p, .stApp span:not([class*="material"]):not([class*="icon"]):not([data-testid*="icon"]),
-.stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+/* === Pretendard 폰트 (텍스트만 - 아이콘 절대 안 건드림) === */
+.stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
 .stApp button, .stApp input, .stApp select, .stApp textarea,
 .stApp div[data-testid="stMarkdownContainer"] {
     font-family: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif !important;
-}
-
-/* === 아이콘 폰트 보존 (중요!) === */
-[class*="material-symbols"], [class*="material-icons"],
-span[data-testid*="icon"], i[class*="material"],
-.material-symbols-rounded, .material-symbols-outlined,
-[class*="MuiSvgIcon"], svg {
-    font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
-}
-
-/* Streamlit 내장 아이콘 표시 === */
-[data-baseweb] svg, [data-testid] svg {
-    font-family: initial !important;
 }
 
 /* === 헤더 (Pretendard - 적정 사이즈) === */
@@ -209,36 +194,19 @@ div[data-testid="stDataFrame"] {
     overflow: hidden !important;
 }
 
-/* === Expander (아이콘 깨짐 방지) === */
+/* === Expander === */
 div[data-testid="stExpander"] {
     background-color: var(--bg-white) !important;
     border: 1px solid var(--border-strong) !important;
     border-radius: 10px !important;
 }
-div[data-testid="stExpander"] summary {
-    padding: 0.75rem 1rem !important;
-    font-weight: 600 !important;
-    font-size: 0.95rem !important;
-}
-/* Expander 내부 아이콘 보존 */
-div[data-testid="stExpander"] summary svg {
-    font-family: initial !important;
-}
 
-/* === 파일 업로더 (아이콘 깨짐 방지) === */
+/* === 파일 업로더 === */
 section[data-testid="stFileUploader"] {
     background-color: var(--accent-warm) !important;
     border: 2px dashed var(--border-strong) !important;
     border-radius: 10px !important;
     padding: 1rem !important;
-}
-section[data-testid="stFileUploader"] button {
-    font-family: 'Pretendard Variable', sans-serif !important;
-}
-/* 업로드 영역 내부 아이콘 보존 */
-section[data-testid="stFileUploader"] svg,
-section[data-testid="stFileUploader"] [class*="icon"] {
-    font-family: initial !important;
 }
 
 /* === 구분선 === */
@@ -2433,13 +2401,33 @@ st.sidebar.markdown("""
 # 메뉴별 도움말 박스 함수
 # ==============================================================================
 def show_menu_help(title, description, tips):
-    """메뉴 상단에 사용법 안내 박스 표시"""
+    """메뉴 상단에 사용법 안내 박스 표시 (expander 안 씀 - 아이콘 깨짐 방지)"""
     if show_help:
-        with st.expander(f"ℹ️ {title} — 사용법 안내 (클릭해서 펴기/접기)", expanded=False):
-            st.markdown(f"**📌 무엇을 하는 메뉴인가요?**\n\n{description}")
-            st.markdown("**💡 사용법**")
-            for tip in tips:
-                st.markdown(f"- {tip}")
+        tips_html = "".join([f"<li style='margin-bottom: 0.35rem;'>{tip}</li>" for tip in tips])
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #f5f1e8;
+                border: 1px solid #d4d1c4;
+                border-left: 4px solid #cc785c;
+                border-radius: 10px;
+                padding: 1rem 1.25rem;
+                margin-bottom: 1rem;
+                font-family: 'Pretendard Variable', sans-serif;
+            ">
+                <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 0.5rem; font-size: 0.95rem;">
+                    💡 사용법 안내
+                </div>
+                <div style="color: #4a4a4a; font-size: 0.875rem; margin-bottom: 0.75rem; line-height: 1.55;">
+                    {description}
+                </div>
+                <ul style="color: #4a4a4a; font-size: 0.875rem; line-height: 1.55; margin: 0; padding-left: 1.25rem;">
+                    {tips_html}
+                </ul>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 
 # ==============================================================================
