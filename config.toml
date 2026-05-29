@@ -1,0 +1,8 @@
+[theme]
+# Anthropic 스타일 (브루털리즘 + 네오 모던)
+base = "light"
+primaryColor = "#cc785c"
+backgroundColor = "#faf9f5"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1a1a1a"
+font = "serif"

@@ -33,179 +33,295 @@ st.set_page_config(
 )
 
 # ============================================================
-# 🎨 모던 SaaS 대시보드 CSS (Linear/Notion 스타일)
+# 🎨 Anthropic 스타일 디자인 (브루털리즘 + 네오 모던)
 # ============================================================
 st.markdown("""
 <style>
-/* === 폰트 임포트 (Inter - SaaS 표준) === */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* === 폰트 임포트 === */
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-/* === 전체 폰트 === */
-html, body, [class*="css"]  {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+/* === CSS 변수 === */
+:root {
+    --bg-cream: #faf9f5;
+    --bg-white: #ffffff;
+    --accent-coral: #cc785c;
+    --accent-coral-dark: #b56a52;
+    --accent-beige: #e6d9c2;
+    --accent-warm: #f5f1e8;
+    --text-primary: #1a1a1a;
+    --text-secondary: #6b6b6b;
+    --text-muted: #9a9a9a;
+    --border: #e3e1da;
+    --border-strong: #d4d1c4;
 }
 
 /* === 전체 배경 === */
 .stApp {
-    background-color: #fafbfc;
+    background-color: var(--bg-cream) !important;
+}
+
+/* === 기본 폰트 === */
+html, body, [class*="css"], p, span, label, div {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    color: var(--text-primary);
+}
+
+/* === 헤더 (Serif - 브루털리즘 시그니처) === */
+h1, h2, h3 {
+    font-family: 'Newsreader', Georgia, serif !important;
+    color: var(--text-primary) !important;
+    letter-spacing: -0.02em !important;
+}
+h1 {
+    font-weight: 600 !important;
+    font-size: 2.5rem !important;
+    line-height: 1.15 !important;
+    margin-bottom: 1.5rem !important;
+}
+h2 {
+    font-weight: 600 !important;
+    font-size: 1.875rem !important;
+    margin-top: 2rem !important;
+    line-height: 1.2 !important;
+}
+h3 {
+    font-weight: 500 !important;
+    font-size: 1.375rem !important;
+    line-height: 1.3 !important;
+}
+h4 {
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 1.125rem !important;
+    color: var(--text-primary) !important;
+    letter-spacing: -0.01em !important;
 }
 
 /* === 사이드바 === */
 section[data-testid="stSidebar"] {
-    background-color: #ffffff;
-    border-right: 1px solid #e5e7eb;
+    background-color: var(--bg-white) !important;
+    border-right: 2px solid var(--border) !important;
 }
-
-section[data-testid="stSidebar"] h1, 
-section[data-testid="stSidebar"] h2, 
+section[data-testid="stSidebar"] .stMarkdown {
+    color: var(--text-primary);
+}
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
 section[data-testid="stSidebar"] h3 {
-    color: #1e293b !important;
-    font-weight: 700;
+    font-family: 'Newsreader', serif !important;
 }
 
-/* === 메인 헤더 (h1~h3) === */
-h1 {
-    color: #0f172a;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-}
-h2 {
-    color: #1e293b;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    margin-top: 1.5rem;
-}
-h3 {
-    color: #334155;
-    font-weight: 600;
-}
-h4 {
-    color: #475569;
-    font-weight: 600;
-}
-
-/* === KPI 카드 (metric) === */
+/* === KPI 카드 (브루털리즘 - 굵은 보더 + 그림자 X) === */
 div[data-testid="stMetric"] {
-    background-color: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 1rem 1.25rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    background-color: var(--bg-white) !important;
+    border: 1.5px solid var(--border-strong) !important;
+    border-radius: 10px !important;
+    padding: 1.25rem 1.5rem !important;
+    transition: all 0.15s ease !important;
 }
 div[data-testid="stMetric"]:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-    border-color: #cbd5e1;
+    border-color: var(--accent-coral) !important;
+    background-color: var(--accent-warm) !important;
 }
 div[data-testid="stMetricLabel"] {
-    font-size: 0.85rem !important;
-    color: #64748b !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.825rem !important;
+    color: var(--text-secondary) !important;
     font-weight: 500 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
 }
 div[data-testid="stMetricValue"] {
-    font-size: 1.75rem !important;
-    font-weight: 700 !important;
-    color: #0f172a !important;
+    font-family: 'Newsreader', serif !important;
+    font-size: 2rem !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    letter-spacing: -0.02em !important;
 }
 div[data-testid="stMetricDelta"] {
-    font-size: 0.85rem !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.825rem !important;
     font-weight: 500 !important;
 }
 
 /* === 정보 박스 (info/success/warning) === */
 div[data-baseweb="notification"] {
     border-radius: 10px !important;
-    border: none !important;
-    padding: 0.875rem 1.125rem !important;
-    font-size: 0.9rem;
+    border: 1.5px solid !important;
+    padding: 1rem 1.25rem !important;
+    font-size: 0.9rem !important;
+}
+div[data-testid="stAlert"] {
+    background-color: var(--accent-warm) !important;
+    border: 1.5px solid var(--accent-beige) !important;
+    border-radius: 10px !important;
+    padding: 1rem 1.25rem !important;
 }
 
-/* === 버튼 === */
+/* === 버튼 (브루털리즘 시그니처: 굵은 보더) === */
 .stButton > button {
-    border-radius: 8px;
-    font-weight: 600;
-    font-size: 0.875rem;
-    transition: all 0.15s ease;
-    border: 1px solid #e5e7eb;
-    padding: 0.5rem 1rem;
+    border-radius: 8px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    transition: all 0.12s ease !important;
+    border: 1.5px solid var(--border-strong) !important;
+    padding: 0.625rem 1.25rem !important;
+    background-color: var(--bg-white) !important;
+    color: var(--text-primary) !important;
+    letter-spacing: -0.01em !important;
 }
 .stButton > button:hover {
-    border-color: #3b82f6;
-    color: #3b82f6;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+    border-color: var(--text-primary) !important;
+    background-color: var(--text-primary) !important;
+    color: var(--bg-white) !important;
+    transform: translateY(-1px) !important;
 }
 .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
-    border: none;
-    box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
+    background-color: var(--accent-coral) !important;
+    color: var(--bg-white) !important;
+    border: 1.5px solid var(--accent-coral) !important;
 }
 .stButton > button[kind="primary"]:hover {
-    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
-    color: white;
+    background-color: var(--accent-coral-dark) !important;
+    border-color: var(--accent-coral-dark) !important;
+    color: var(--bg-white) !important;
 }
 
 /* === Selectbox / Multiselect === */
 div[data-baseweb="select"] {
-    border-radius: 8px;
+    border-radius: 8px !important;
+}
+div[data-baseweb="select"] > div {
+    background-color: var(--bg-white) !important;
+    border: 1.5px solid var(--border-strong) !important;
+    border-radius: 8px !important;
+}
+div[data-baseweb="select"] > div:hover {
+    border-color: var(--accent-coral) !important;
+}
+
+/* === Number Input === */
+div[data-testid="stNumberInput"] input {
+    border: 1.5px solid var(--border-strong) !important;
+    border-radius: 8px !important;
+    background-color: var(--bg-white) !important;
+    font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* === Slider === */
+div[data-testid="stSlider"] {
+    padding-top: 0.5rem;
 }
 
 /* === Dataframe === */
 div[data-testid="stDataFrame"] {
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    overflow: hidden;
+    border: 1.5px solid var(--border-strong) !important;
+    border-radius: 10px !important;
+    overflow: hidden !important;
+}
+div[data-testid="stDataFrame"] table {
+    font-family: 'Inter', sans-serif !important;
 }
 
 /* === Expander === */
 div[data-testid="stExpander"] {
-    background-color: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    background-color: var(--bg-white) !important;
+    border: 1.5px solid var(--border-strong) !important;
+    border-radius: 10px !important;
+}
+div[data-testid="stExpander"] details summary {
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
 }
 
 /* === Tabs === */
 button[data-baseweb="tab"] {
-    font-weight: 600;
-    font-size: 0.9rem;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    color: var(--text-secondary) !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    color: var(--accent-coral) !important;
 }
 
-/* === 구분선 === */
+/* === 구분선 (얇은 베이지) === */
 hr {
-    border-color: #e5e7eb;
-    margin: 1.5rem 0;
+    border-color: var(--border) !important;
+    border-width: 1px !important;
+    margin: 2rem 0 !important;
 }
 
 /* === 캡션 === */
-div[data-testid="stCaptionContainer"] {
-    color: #64748b;
-    font-size: 0.85rem;
+div[data-testid="stCaptionContainer"], .stCaption {
+    color: var(--text-secondary) !important;
+    font-size: 0.875rem !important;
+    font-style: italic !important;
+    font-family: 'Newsreader', serif !important;
 }
 
-/* === 사이드바 라디오 버튼 === */
+/* === 사이드바 라디오 === */
 div[data-testid="stSidebar"] label {
-    font-weight: 500;
-    color: #334155;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 500 !important;
+    color: var(--text-primary) !important;
+}
+
+/* === 라디오 선택 색상 === */
+div[role="radiogroup"] label > div:first-child {
+    background-color: var(--accent-coral) !important;
+}
+
+/* === 체크박스 === */
+div[data-testid="stCheckbox"] label > div:first-child {
+    border-color: var(--text-secondary) !important;
 }
 
 /* === 파일 업로더 === */
 section[data-testid="stFileUploader"] {
-    background-color: #f8fafc;
-    border: 2px dashed #cbd5e1;
-    border-radius: 10px;
-    padding: 1rem;
+    background-color: var(--accent-warm) !important;
+    border: 2px dashed var(--border-strong) !important;
+    border-radius: 10px !important;
+    padding: 1.25rem !important;
+}
+section[data-testid="stFileUploader"]:hover {
+    border-color: var(--accent-coral) !important;
 }
 
 /* === 코드 블록 === */
 code {
-    background-color: #f1f5f9 !important;
-    color: #db2777 !important;
+    background-color: var(--accent-warm) !important;
+    color: var(--accent-coral-dark) !important;
     padding: 0.15rem 0.4rem !important;
     border-radius: 4px !important;
+    font-family: 'JetBrains Mono', monospace !important;
     font-size: 0.85em !important;
+    font-weight: 500 !important;
 }
+
+/* === 링크 === */
+a {
+    color: var(--accent-coral) !important;
+    text-decoration: none !important;
+    font-weight: 500 !important;
+}
+a:hover {
+    text-decoration: underline !important;
+}
+
+/* === 메인 컨테이너 패딩 === */
+.block-container {
+    padding-top: 2.5rem !important;
+    padding-bottom: 3rem !important;
+    max-width: 1400px !important;
+}
+
+/* === Streamlit 기본 메뉴 숨김 (선택적) === */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+
 </style>
 """, unsafe_allow_html=True)
 
