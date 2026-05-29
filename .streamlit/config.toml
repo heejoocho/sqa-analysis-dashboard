@@ -1,8 +1,8 @@
 [theme]
-# 모던 SaaS 대시보드 테마 (Linear/Notion 스타일)
+# Anthropic 스타일 (브루털리즘 + 네오 모던)
 base = "light"
-primaryColor = "#3b82f6"
-backgroundColor = "#fafbfc"
+primaryColor = "#cc785c"
+backgroundColor = "#faf9f5"
 secondaryBackgroundColor = "#ffffff"
-textColor = "#1e293b"
-font = "sans serif"
+textColor = "#1a1a1a"
+font = "serif"
