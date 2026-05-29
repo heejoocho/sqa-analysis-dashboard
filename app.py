@@ -32,6 +32,183 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ============================================================
+# 🎨 모던 SaaS 대시보드 CSS (Linear/Notion 스타일)
+# ============================================================
+st.markdown("""
+<style>
+/* === 폰트 임포트 (Inter - SaaS 표준) === */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* === 전체 폰트 === */
+html, body, [class*="css"]  {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+
+/* === 전체 배경 === */
+.stApp {
+    background-color: #fafbfc;
+}
+
+/* === 사이드바 === */
+section[data-testid="stSidebar"] {
+    background-color: #ffffff;
+    border-right: 1px solid #e5e7eb;
+}
+
+section[data-testid="stSidebar"] h1, 
+section[data-testid="stSidebar"] h2, 
+section[data-testid="stSidebar"] h3 {
+    color: #1e293b !important;
+    font-weight: 700;
+}
+
+/* === 메인 헤더 (h1~h3) === */
+h1 {
+    color: #0f172a;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+h2 {
+    color: #1e293b;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-top: 1.5rem;
+}
+h3 {
+    color: #334155;
+    font-weight: 600;
+}
+h4 {
+    color: #475569;
+    font-weight: 600;
+}
+
+/* === KPI 카드 (metric) === */
+div[data-testid="stMetric"] {
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+div[data-testid="stMetric"]:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-color: #cbd5e1;
+}
+div[data-testid="stMetricLabel"] {
+    font-size: 0.85rem !important;
+    color: #64748b !important;
+    font-weight: 500 !important;
+}
+div[data-testid="stMetricValue"] {
+    font-size: 1.75rem !important;
+    font-weight: 700 !important;
+    color: #0f172a !important;
+}
+div[data-testid="stMetricDelta"] {
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+}
+
+/* === 정보 박스 (info/success/warning) === */
+div[data-baseweb="notification"] {
+    border-radius: 10px !important;
+    border: none !important;
+    padding: 0.875rem 1.125rem !important;
+    font-size: 0.9rem;
+}
+
+/* === 버튼 === */
+.stButton > button {
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: all 0.15s ease;
+    border: 1px solid #e5e7eb;
+    padding: 0.5rem 1rem;
+}
+.stButton > button:hover {
+    border-color: #3b82f6;
+    color: #3b82f6;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+}
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    border: none;
+    box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
+}
+.stButton > button[kind="primary"]:hover {
+    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
+    color: white;
+}
+
+/* === Selectbox / Multiselect === */
+div[data-baseweb="select"] {
+    border-radius: 8px;
+}
+
+/* === Dataframe === */
+div[data-testid="stDataFrame"] {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+/* === Expander === */
+div[data-testid="stExpander"] {
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+/* === Tabs === */
+button[data-baseweb="tab"] {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+/* === 구분선 === */
+hr {
+    border-color: #e5e7eb;
+    margin: 1.5rem 0;
+}
+
+/* === 캡션 === */
+div[data-testid="stCaptionContainer"] {
+    color: #64748b;
+    font-size: 0.85rem;
+}
+
+/* === 사이드바 라디오 버튼 === */
+div[data-testid="stSidebar"] label {
+    font-weight: 500;
+    color: #334155;
+}
+
+/* === 파일 업로더 === */
+section[data-testid="stFileUploader"] {
+    background-color: #f8fafc;
+    border: 2px dashed #cbd5e1;
+    border-radius: 10px;
+    padding: 1rem;
+}
+
+/* === 코드 블록 === */
+code {
+    background-color: #f1f5f9 !important;
+    color: #db2777 !important;
+    padding: 0.15rem 0.4rem !important;
+    border-radius: 4px !important;
+    font-size: 0.85em !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ──────────────────────────────────────────────────────────────────────────
 # 한글 폰트
 # ──────────────────────────────────────────────────────────────────────────
