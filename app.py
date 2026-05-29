@@ -288,8 +288,8 @@ KEYWORD_DOMAIN_MAP = {
     'line broken':     {'area': '좌표 보간/샘플링 레이트',     'priority': 'HIGH'},
     'jitter':          {'area': '노이즈 필터/디바운싱',         'priority': 'MID'},
     'ghost touch':     {'area': '노이즈 임계값/그라운드',       'priority': 'HIGH'},
-    'no touch':        {'area': '감도 보정/터치 임계값',         'priority': 'CRITICAL'},
-    '2 point로 인식':  {'area': '멀티터치 분리 알고리즘',         'priority': 'MID'},
+    'no touch':        {'area': '감도 보정/입력 임계값',         'priority': 'CRITICAL'},
+    '2 point로 인식':  {'area': '멀티 입력 분리 알고리즘',         'priority': 'MID'},
     'edge 과밀착':     {'area': '경계영역 보정 (강하게 반응)',    'priority': 'MID'},
     'edge 미밀착':     {'area': '경계영역 보정 (약하게 반응)',    'priority': 'MID'},
     'touch delay':     {'area': '응답속도/인터럽트 처리',         'priority': 'CRITICAL'},
@@ -302,8 +302,8 @@ SEVERITY_MAP = {
 
 TEST_AREA_MAP = {
     'Wet': '방수·방습', 'Linearity': '좌표 보간', 'Filter': '노이즈 필터링',
-    'A/P/L': '인식 정확도', 'Separation': '멀티터치 분리',
-    'Sensitivity': '터치 감도', 'Palm': 'Palm Rejection',
+    'A/P/L': '인식 정확도', 'Separation': '멀티 입력 분리',
+    'Sensitivity': '입력 감도', 'Palm': 'Palm Rejection',
 }
 
 KEYWORDS_ALL = list(KEYWORD_DOMAIN_MAP.keys())
@@ -2344,7 +2344,7 @@ def generate_ppt_report(df, fail_df, selected_month):
 # 메인 앱
 # ==============================================================================
 
-st.title("🔍 SQA 터치패널 펌웨어 분석 대시보드")
+st.title("🔍 SQA 펌웨어 분석 대시보드")
 st.caption("서강대학교 AI·SW대학원 | 생성형 AI와 파이썬 데이터 분석 | A74072 조희주")
 st.markdown("---")
 
