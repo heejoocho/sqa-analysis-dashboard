@@ -308,6 +308,361 @@ TEST_AREA_MAP = {
 
 KEYWORDS_ALL = list(KEYWORD_DOMAIN_MAP.keys())
 
+# ==============================================================================
+# 💡 자동 인사이트 생성 함수 (분석가 시선)
+# ==============================================================================
+# 모든 인사이트는 4단계 구조:
+# 1. What (수치/사실)
+# 2. So What (비교/맥락)
+# 3. Why (원인 추정)
+# 4. Now What (권장 행동)
+# ==============================================================================
+
+def render_insight_box(title, what, so_what, why, now_what, severity="info"):
+    """공통 인사이트 박스 렌더링"""
+    # severity: info(파랑), warning(주황), critical(빨강), success(그린)
+    color_map = {
+        "info": ("#3498db", "#EBF5FF"),
+        "warning": ("#f39c12", "#FFF5E6"),
+        "critical": ("#e74c3c", "#FFEBEE"),
+        "success": ("#27ae60", "#E8F8F0"),
+    }
+    border_color, bg_color = color_map.get(severity, color_map["info"])
+    
+    html = f"""
+    <div style="
+        background-color: {bg_color};
+        border-left: 4px solid {border_color};
+        border-radius: 8px;
+        padding: 1rem 1.25rem;
+        margin: 1rem 0;
+        font-family: 'Pretendard Variable', sans-serif;
+    ">
+        <div style="font-weight: 700; font-size: 1.05rem; color: #1a1a1a; margin-bottom: 0.6rem;">
+            💡 {title}
+        </div>
+        <div style="font-size: 0.9rem; color: #2c3e50; line-height: 1.6;">
+            <div style="margin-bottom: 0.4rem;">
+                <span style="color: {border_color}; font-weight: 600;">📊 수치:</span> {what}
+            </div>
+            <div style="margin-bottom: 0.4rem;">
+                <span style="color: {border_color}; font-weight: 600;">🔎 의미:</span> {so_what}
+            </div>
+            <div style="margin-bottom: 0.4rem;">
+                <span style="color: {border_color}; font-weight: 600;">🔍 원인 추정:</span> {why}
+            </div>
+            <div>
+                <span style="color: {border_color}; font-weight: 600;">🎯 권장 행동:</span> {now_what}
+            </div>
+        </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def insight_build_trend(df, fail_df):
+    """빌드별 ∩ 곡선 인사이트"""
+    build_summary = df.groupby('Build_Num').apply(
+        lambda x: (x['Result'] == 'FAIL').sum() / len(x) * 100
+    ).round(2)
+    if len(build_summary) < 2:
+        return
+    
+    peak_build = build_summary.idxmax()
+    peak_rate = build_summary.max()
+    latest_build = build_summary.index[-1]
+    latest_rate = build_summary.iloc[-1]
+    min_rate = build_summary.min()
+    
+    diff_peak_latest = peak_rate - latest_rate
+    
+    # 추세 판단
+    if diff_peak_latest > 5:
+        trend = "개선"
+        severity = "success"
+        action = f"현재 안정화 단계입니다. 빌드 {peak_build}의 회귀 원인을 분석해 재발 방지 체크리스트를 작성하세요."
+    elif latest_rate > peak_rate * 0.9:
+        trend = "악화"
+        severity = "warning"
+        action = f"최신 빌드가 정점 수준에 근접합니다. 다음 빌드 출시 전 회귀 테스트 강화를 권장합니다."
+    else:
+        trend = "안정"
+        severity = "info"
+        action = "현재 안정 추세를 유지하며 다음 빌드의 미세 변화를 모니터링하세요."
+    
+    render_insight_box(
+        title=f"빌드 추세 분석 — {trend} 단계",
+        what=f"빌드 {peak_build}에서 {peak_rate:.1f}%로 정점을 찍은 후 최신 빌드 {latest_build}에서 {latest_rate:.1f}%로 변동",
+        so_what=f"정점 대비 최신은 {diff_peak_latest:+.1f}%p 차이로, 펌웨어가 점진적으로 안정화되는 ∩ 곡선 패턴",
+        why=f"빌드 {peak_build} 구간에서 회귀(악화) 발생 후, 후속 빌드에서 수정 반영된 것으로 추정",
+        now_what=action,
+        severity=severity
+    )
+
+
+def insight_ic_failrate(df, fail_df):
+    """IC별 Fail율 인사이트"""
+    ic_summary = df.groupby('IC').apply(
+        lambda x: (x['Result'] == 'FAIL').sum() / len(x) * 100
+    ).round(2)
+    if len(ic_summary) < 2:
+        return
+    
+    max_ic = ic_summary.idxmax()
+    max_rate = ic_summary.max()
+    avg_rate = ic_summary.mean()
+    ratio = max_rate / avg_rate
+    
+    # 해당 IC의 주요 결함
+    ic_fails = fail_df[fail_df['IC'] == max_ic]
+    if len(ic_fails) == 0 or 'Keyword' not in ic_fails.columns:
+        return
+    top_keyword_counts = ic_fails['Keyword'].value_counts()
+    if len(top_keyword_counts) == 0:
+        return
+    top_keyword = top_keyword_counts.index[0]
+    top_keyword_pct = top_keyword_counts.iloc[0] / len(ic_fails) * 100
+    
+    # 검토 영역
+    area = KEYWORD_DOMAIN_MAP.get(top_keyword, {}).get('area', '관련 모듈')
+    
+    severity = "critical" if ratio > 1.5 else "warning"
+    
+    render_insight_box(
+        title=f"{max_ic} IC 집중 결함 — 우선 검토 대상",
+        what=f"{max_ic}의 Fail율은 {max_rate:.1f}%로, 다른 IC 평균({avg_rate:.1f}%) 대비 {ratio:.1f}배 높음",
+        so_what=f"전체 IC 중 가장 높은 Fail율로, 해당 IC가 시스템 안정성의 주요 병목 지점",
+        why=f"주요 결함이 '{top_keyword}'에 {top_keyword_pct:.0f}% 집중 → {area} 모듈의 구조적 이슈로 추정",
+        now_what=f"{max_ic} 펌웨어의 '{area}' 영역을 다음 빌드에서 우선 검토 권장. IC별 분리된 개선 로드맵 수립.",
+        severity=severity
+    )
+
+
+def insight_failtype_impact(fail_df):
+    """Fail_Type 영향 분석 인사이트"""
+    if 'Keyword' not in fail_df.columns:
+        return
+    fail_kw = fail_df[fail_df['Keyword'] != '']
+    if len(fail_kw) == 0:
+        return
+    
+    kw_counts = fail_kw['Keyword'].value_counts()
+    kw_models = fail_kw.groupby('Keyword')['Model'].nunique()
+    
+    top_kw = kw_counts.index[0]
+    top_count = kw_counts.iloc[0]
+    top_models = kw_models[top_kw]
+    
+    # 가장 광범위한 결함 (영향 모델 수 기준)
+    wide_kw = kw_models.idxmax()
+    wide_models = kw_models[wide_kw]
+    wide_count = kw_counts[wide_kw]
+    
+    area = KEYWORD_DOMAIN_MAP.get(top_kw, {}).get('area', '관련 모듈')
+    
+    if top_kw == wide_kw:
+        # 한 결함이 다 압도
+        focus = f"'{top_kw}'가 발생 빈도({top_count}건)와 영향 범위({top_models}개 모델) 모두 1위"
+        action = f"'{area}' 모듈의 최우선 개선이 필요합니다. 다음 빌드 출시 전 집중 검토."
+    else:
+        # 두 결함 비교
+        focus = f"'{top_kw}'는 발생 빈도 1위({top_count}건, {top_models}개 모델), '{wide_kw}'는 영향 범위 1위({wide_models}개 모델, {wide_count}건)"
+        action = f"'{top_kw}'(빈도)와 '{wide_kw}'(범위) 두 결함을 동시에 추적하는 게 효율적입니다."
+    
+    render_insight_box(
+        title="결함 영향 분석 — 우선순위 결정",
+        what=focus,
+        so_what="발생 빈도와 영향 범위는 다른 차원이므로, 두 축을 모두 고려한 우선순위가 필요",
+        why=f"'{top_kw}'는 '{area}' 영역의 구조적 이슈로, 특정 사용 패턴에서 반복 발생하는 것으로 추정",
+        now_what=action,
+        severity="warning"
+    )
+
+
+def insight_chisquare(df, fail_df):
+    """카이제곱 대조 분석 인사이트"""
+    render_insight_box(
+        title="합격률 vs 결함 종류 — 대조 분석 결과",
+        what="IC/고객사와 합격률은 통계적으로 무관(p≥0.05)이지만, 결함 종류는 매우 유의(p<0.001)",
+        so_what="합격률 자체는 IC·고객사마다 비슷하지만, 막상 Fail이 발생하면 그 종류는 그룹마다 다름",
+        why="동일한 테스트 절차로 검사하지만, IC 칩셋과 고객사 모델 특성에 따라 약점이 다른 곳에 나타남",
+        now_what="결함 대응 전략을 IC·고객사별로 다르게 수립해야 합니다. 단순 합격률 비교가 아닌 결함 종류별 접근이 필요합니다.",
+        severity="info"
+    )
+
+
+def insight_monthly_trend(df, fail_df):
+    """월별 추이 인사이트"""
+    df_copy = df.copy()
+    df_copy['Test_Date'] = pd.to_datetime(df_copy['Test_Date'], errors='coerce')
+    df_copy = df_copy.dropna(subset=['Test_Date'])
+    if len(df_copy) == 0:
+        return
+    df_copy['month'] = df_copy['Test_Date'].dt.to_period('M')
+    
+    monthly = df_copy.groupby('month').apply(
+        lambda x: (x['Result'] == 'FAIL').sum() / len(x) * 100
+    ).round(2)
+    
+    if len(monthly) < 2:
+        return
+    
+    peak_month = monthly.idxmax()
+    peak_rate = monthly.max()
+    latest_month = monthly.index[-1]
+    latest_rate = monthly.iloc[-1]
+    avg_rate = monthly.mean()
+    
+    diff = latest_rate - avg_rate
+    
+    if diff < -3:
+        trend = "개선세"
+        severity = "success"
+        action = "현재 개선 추세를 유지하세요. 어떤 빌드 변경이 효과적이었는지 분석 권장."
+    elif diff > 3:
+        trend = "악화세"
+        severity = "warning"
+        action = "최근 Fail율 증가 원인 분석 시급. 빌드 단위 회귀 점검 필요."
+    else:
+        trend = "안정세"
+        severity = "info"
+        action = "안정 단계 유지 중. 신규 빌드의 미세 변화 모니터링."
+    
+    render_insight_box(
+        title=f"월별 추이 — {trend}",
+        what=f"{peak_month} 정점({peak_rate:.1f}%) 이후 {latest_month}는 {latest_rate:.1f}%, 평균({avg_rate:.1f}%) 대비 {diff:+.1f}%p",
+        so_what=f"최근 월 Fail율이 전체 평균보다 {abs(diff):.1f}%p {'낮음' if diff < 0 else '높음'}",
+        why=f"{peak_month}에 신규 빌드 회귀 가능성이 높으며, 후속 빌드에서 수정 영향으로 추정",
+        now_what=action,
+        severity=severity
+    )
+
+
+def insight_customer_analysis(df, fail_df):
+    """고객사 분석 인사이트"""
+    cust_summary = df.groupby('Customer').apply(
+        lambda x: (x['Result'] == 'FAIL').sum() / len(x) * 100
+    ).round(2)
+    if len(cust_summary) < 2:
+        return
+    
+    max_cust = cust_summary.idxmax()
+    max_rate = cust_summary.max()
+    min_cust = cust_summary.idxmin()
+    min_rate = cust_summary.min()
+    spread = max_rate - min_rate
+    
+    # 고객사별 주요 결함
+    max_fails = fail_df[fail_df['Customer'] == max_cust]
+    if len(max_fails) > 0 and 'Keyword' in max_fails.columns:
+        max_kw_series = max_fails['Keyword'].value_counts()
+        if len(max_kw_series) > 0:
+            max_kw = max_kw_series.index[0]
+            area = KEYWORD_DOMAIN_MAP.get(max_kw, {}).get('area', '관련 모듈')
+        else:
+            max_kw = "다양한 결함"
+            area = "다양한 모듈"
+    else:
+        max_kw = "다양한 결함"
+        area = "다양한 모듈"
+    
+    severity = "warning" if spread > 5 else "info"
+    
+    render_insight_box(
+        title="고객사별 결함 패턴 — 맞춤 전략 필요",
+        what=f"고객사별 Fail율은 {min_rate:.1f}%({min_cust}) ~ {max_rate:.1f}%({max_cust})까지 {spread:.1f}%p 격차",
+        so_what=f"동일 펌웨어인데도 고객사별로 Fail율 차이 존재 → 사용 환경/모델 라인업 차이 반영",
+        why=f"{max_cust}의 주요 결함은 '{max_kw}'로, '{area}' 영역에서 자주 발생",
+        now_what=f"{max_cust} 전용 검증 시나리오 강화 권장. 고객사별 결함 패턴 차이를 정기 리포트화.",
+        severity=severity
+    )
+
+
+def insight_test_item_matrix(fail_df):
+    """Test_Item × Fail_Type 매트릭스 인사이트"""
+    if 'Test_Item' not in fail_df.columns or 'Keyword' not in fail_df.columns:
+        return
+    fail_kw = fail_df[fail_df['Keyword'] != '']
+    if len(fail_kw) == 0:
+        return
+    
+    # 가장 많은 조합
+    pair_counts = fail_kw.groupby(['Test_Item', 'Keyword']).size().sort_values(ascending=False)
+    if len(pair_counts) == 0:
+        return
+    
+    top_pair = pair_counts.index[0]
+    top_count = pair_counts.iloc[0]
+    test_item, keyword = top_pair
+    area = KEYWORD_DOMAIN_MAP.get(keyword, {}).get('area', '관련 모듈')
+    
+    # 가장 다양한 결함이 나는 Test_Item
+    item_keyword_count = fail_kw.groupby('Test_Item')['Keyword'].nunique().sort_values(ascending=False)
+    if len(item_keyword_count) > 0:
+        diverse_item = item_keyword_count.index[0]
+        diverse_n = item_keyword_count.iloc[0]
+    else:
+        diverse_item = test_item
+        diverse_n = 0
+    
+    render_insight_box(
+        title="Test_Item × Fail_Type 매트릭스 — 핫스팟 발견",
+        what=f"가장 빈번한 조합: '{test_item}' × '{keyword}' ({top_count}건). 가장 다양한 결함이 발생하는 Test_Item: '{diverse_item}' ({diverse_n}종)",
+        so_what=f"특정 테스트 시나리오에서 특정 결함이 집중되는 핫스팟이 존재하며, '{diverse_item}'은 다양한 결함이 발생하는 취약 항목",
+        why=f"'{test_item}' 시나리오가 '{area}' 모듈의 약점을 자극하는 조건을 가지고 있는 것으로 추정",
+        now_what=f"'{test_item}' 시나리오의 코드 경로를 우선 분석. '{diverse_item}'은 종합 검증 강화 필요.",
+        severity="warning"
+    )
+
+
+def insight_regression_alert(alerts_df, latest_build, prev_build, df, fail_df):
+    """회귀 알람 인사이트"""
+    if len(alerts_df) == 0:
+        render_insight_box(
+            title="회귀 알람 — 정상 상태 ✅",
+            what=f"최신 빌드 {latest_build}에서 신규/악화 결함이 검출되지 않음",
+            so_what=f"이전 빌드 {prev_build} 대비 회귀가 없는 안정적 빌드",
+            why="펌웨어 변경이 기존 기능에 부정적 영향을 주지 않은 것으로 추정",
+            now_what="현재 안정 상태를 유지하며 다음 빌드 출시 전 동일 수준 회귀 테스트 진행 권장.",
+            severity="success"
+        )
+        return
+    
+    n_new = (alerts_df['상태'] == 'NEW').sum()
+    n_worse = (alerts_df['상태'] == 'WORSE').sum()
+    
+    # 가장 심각한 케이스 (현재 건수가 가장 큰 것)
+    worst_idx = alerts_df['latest'].idxmax()
+    worst_model = alerts_df.loc[worst_idx, 'Model']
+    worst_keyword = alerts_df.loc[worst_idx, 'Keyword']
+    worst_prev = alerts_df.loc[worst_idx, 'prev']
+    worst_latest = alerts_df.loc[worst_idx, 'latest']
+    area = KEYWORD_DOMAIN_MAP.get(worst_keyword, {}).get('area', '관련 모듈')
+    
+    if worst_prev == 0:
+        change = f"신규 발생 (0 → {worst_latest}건)"
+    else:
+        pct = (worst_latest - worst_prev) / worst_prev * 100
+        change = f"{worst_prev} → {worst_latest}건 ({pct:+.0f}%)"
+    
+    severity = "critical" if n_new > 3 or n_worse > 5 else "warning"
+    
+    render_insight_box(
+        title=f"회귀 알람 — {n_new + n_worse}건 검출",
+        what=f"신규(NEW) {n_new}건, 악화(WORSE) {n_worse}건. 최대 케이스: {worst_model} × {worst_keyword} ({change})",
+        so_what=f"빌드 {prev_build} → {latest_build} 변경이 일부 기능에 부정적 영향을 미친 회귀 발생",
+        why=f"'{worst_keyword}'의 검토 영역인 '{area}'에서 코드 변경 부작용 가능성",
+        now_what=f"{worst_model}의 '{area}' 코드 변경 사항 즉시 검토. 신규 결함 {n_new}건은 다음 빌드 출시 전 수정 필수.",
+        severity=severity
+    )
+
+
+# ==============================================================================
+# 💡 자동 인사이트 생성 함수 끝
+# ==============================================================================
+
+
+
 # 보고서 컬러
 RPT_HEADER_BG = RGBColor(0x06, 0x5A, 0x82)
 RPT_HEADER_FG = RGBColor(0xFF, 0xFF, 0xFF)
@@ -651,6 +1006,10 @@ def render_full_insights(df, fail_df):
     plt.tight_layout()
     st.pyplot(fig)
     plt.close(fig)
+    
+    # 💡 인사이트
+    insight_build_trend(df, fail_df)
+    
     st.markdown("---")
 
     # IC별 + Donut
@@ -698,6 +1057,10 @@ def render_full_insights(df, fail_df):
     plt.tight_layout()
     st.pyplot(fig2)
     plt.close(fig2)
+    
+    # 💡 인사이트
+    insight_ic_failrate(df, fail_df)
+    
     st.markdown("---")
 
     # 카테고리 히트맵
@@ -815,7 +1178,8 @@ def render_full_insights(df, fail_df):
         bubble_df.columns = ['순위', 'Fail_Type', '발생 횟수', '영향 모델 수']
         st.dataframe(bubble_df, use_container_width=True, hide_index=True)
         
-        st.info("💡 **활용**: 자주 발생하면서 많은 모델에 영향을 주는 Fail_Type을 우선 검토하세요. 오른쪽 위 사분면이 가장 시급한 영역입니다.")
+        # 💡 인사이트
+        insight_failtype_impact(fail_df)
 
     st.markdown("---")
 
@@ -877,14 +1241,8 @@ def render_full_insights(df, fail_df):
         st.pyplot(fig)
         plt.close(fig)
 
-        st.success(
-            "💡 **핵심 인사이트 (대조 분석)**\n\n"
-            "- **합격률**은 IC/고객사와 통계적으로 **무관**합니다 (회색 막대, p≥0.05). "
-            "즉 어떤 IC·고객사든 합격률 자체는 비슷합니다.\n"
-            "- 하지만 **결함 종류**는 IC/고객사와 **매우 유의한 관계**가 있습니다 (빨간 막대, p<0.001).\n\n"
-            "→ **'합격률은 비슷하지만, 막상 Fail이 나면 그 종류는 IC·고객사마다 다르다'**는 결론입니다. "
-            "결함 대응 전략은 IC별로 다르게 세워야 한다는 의사결정 근거가 됩니다."
-        )
+        # 💡 인사이트 (통일된 형식)
+        insight_chisquare(df, fail_df)
 
 
 # ==============================================================================
@@ -899,12 +1257,11 @@ def render_fail_rate_prediction(df, fail_df):
     from sklearn.model_selection import LeaveOneOut
     from sklearn.metrics import mean_absolute_error
     
-    st.markdown("### 📈 다음 빌드 Fail율 예측")
-    st.caption("과거 빌드 데이터를 학습해 다음 빌드의 Fail율을 예측하고 신뢰구간을 함께 제공합니다.")
+    st.markdown("### 🔮 모델별 다음 빌드 Fail율 예측")
+    st.caption("같은 모델은 동일한 FW 라인(기능)이 빌드별로 진화하므로 모델 단위로 예측합니다.")
     
     # ===== 예측 대상: 모델 선택 (FW 라인 단위) =====
     st.markdown("#### 🎯 예측 대상 모델 선택")
-    st.caption("같은 모델은 동일한 FW 라인(기능)이 빌드별로 진화하므로, 모델 단위로 예측해야 의미가 있습니다.")
     
     # 모델별 빌드 수 계산 (4개 이상만 예측 가능)
     model_build_counts = df.groupby('Model')['Build_Num'].nunique()
@@ -1150,8 +1507,8 @@ def render_fail_rate_prediction(df, fail_df):
     
     st.markdown("---")
     
-    # ===== 모델 해석 =====
-    st.markdown("#### 💡 모델 해석 및 한계")
+    # ===== 예측 요약 =====
+    st.markdown("#### 💡 예측 결과 해석")
     
     # 추세 방향
     if y_pred < latest_rate - 1:
@@ -1159,25 +1516,17 @@ def render_fail_rate_prediction(df, fail_df):
         trend_advice = "펌웨어가 안정화되고 있습니다. 현재 개선 방향을 유지하세요."
     elif y_pred > latest_rate + 1:
         trend_text = f"⚠️ 악화 추세 — 최신 대비 {y_pred - latest_rate:.2f}%p 증가 예상"
-        trend_advice = "Fail율이 증가할 가능성이 있습니다. 회귀 발생 가능성을 사전 모니터링하세요."
+        trend_advice = "Fail율 증가가 예상됩니다. 다음 빌드 출시 전 사전 모니터링을 권장합니다."
     else:
         trend_text = "➡️ 안정적 — 최신 빌드와 유사한 수준 유지"
         trend_advice = "Fail율이 안정화 단계입니다."
     
-    # R² 신뢰도
-    if train_r2 > 0.7:
-        r2_text = f"R² = {train_r2:.3f} → 강한 추세, 모델이 데이터를 잘 설명함"
-    elif train_r2 > 0.4:
-        r2_text = f"R² = {train_r2:.3f} → 중간 추세, 변동성 존재"
-    else:
-        r2_text = f"R² = {train_r2:.3f} → 약한 추세, 예측 신뢰도 낮음"
-    
     info_text = (
-        f"**🔮 예측 요약**\n\n"
+        f"**🔮 다음 빌드 예측 요약**\n\n"
         f"- **추세**: {trend_text}\n"
         f"- **예측값**: 빌드 {next_build_input} → **{y_pred:.2f}%** "
         f"[95% 신뢰구간: {ci_low:.1f}% ~ {ci_high:.1f}%]\n\n"
-        f"💡 **의사결정 조언**: {trend_advice}"
+        f"💡 **권장 사항**: {trend_advice}"
     )
     st.info(info_text)
     
@@ -1257,6 +1606,9 @@ def render_regression_alert(df, fail_df):
             "영상": st.column_config.LinkColumn("영상 보기", display_text="🎬 재생")
         }
     )
+    
+    # 💡 인사이트
+    insight_regression_alert(alerts, latest_build, prev_build, df, fail_df)
 
 
 # ==============================================================================
@@ -1332,6 +1684,9 @@ def render_full_statistics(df, fail_df):
     monthly_display.columns = ['월', '전체', 'Fail', 'Fail율(%)']
     st.dataframe(monthly_display, use_container_width=True, hide_index=True)
     
+    # 💡 인사이트
+    insight_monthly_trend(df, fail_df)
+    
     st.markdown("---")
     
     # ===== 2. Customer (고객사) 분석 =====
@@ -1378,6 +1733,9 @@ def render_full_statistics(df, fail_df):
         st.pyplot(fig)
         plt.close(fig)
     
+    # 💡 인사이트
+    insight_customer_analysis(df, fail_df)
+    
     st.markdown("---")
     
     # ===== 3. Test_Item × Fail_Type 매트릭스 =====
@@ -1408,7 +1766,8 @@ def render_full_statistics(df, fail_df):
         st.pyplot(fig)
         plt.close(fig)
         
-        st.info("💡 **활용**: 매트릭스의 진한 칸을 보면 어떤 테스트 항목이 어떤 결함에 취약한지 즉시 파악 가능합니다.")
+        # 💡 인사이트 (단순 안내 → 의사결정용)
+        insight_test_item_matrix(fail_df)
     
     st.markdown("---")
     
@@ -2273,19 +2632,77 @@ def generate_ppt_report(df, fail_df, selected_month):
         add_text(s8, "이 월에 빌드가 1개 이하라 회귀 비교 불가", 0.4, 3, 10, 0.4,
                  size=14, color=RPT_MID)
     
-    # ===== Slide 9: 회의 요약 =====
+    # ===== Slide 9: 회의 요약 + 핵심 인사이트 =====
     s9 = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s9, 7, "회의 요약 및 향후 계획")
+    add_header(s9, 7, "회의 요약 및 핵심 인사이트")
     
-    table = s9.shapes.add_table(5, 2, Inches(0.4), Inches(2),
-                                 Inches(12.6), Inches(0.55 * 5)).table
-    table.columns[0].width = Inches(3.0)
-    table.columns[1].width = Inches(9.6)
+    # 인사이트 자동 생성 (분석가 시선)
+    auto_insight_lines = []
+    if len(fail_df) > 0:
+        # 1. 가장 위험한 IC 찾기
+        ic_fail_rates = df.groupby('IC').apply(
+            lambda x: (x['Result']=='FAIL').sum() / len(x) * 100
+        )
+        if len(ic_fail_rates) > 0:
+            max_ic = ic_fail_rates.idxmax()
+            max_rate = ic_fail_rates.max()
+            avg_rate = ic_fail_rates.mean()
+            ratio = max_rate / avg_rate if avg_rate > 0 else 1
+            
+            # IC의 주요 결함
+            ic_fails = fail_df[fail_df['IC'] == max_ic]
+            if len(ic_fails) > 0:
+                top_kw_for_ic = ic_fails['Keyword'].value_counts().index[0]
+                area = KEYWORD_DOMAIN_MAP.get(top_kw_for_ic, {}).get('area', '관련 모듈')
+                auto_insight_lines.append(
+                    f"• {max_ic} Fail율 {max_rate:.1f}% (전체 평균 {avg_rate:.1f}%의 {ratio:.1f}배) → '{top_kw_for_ic}' 집중, '{area}' 우선 검토"
+                )
+        
+        # 2. 영향 범위가 큰 결함
+        kw_counts = fail_df['Keyword'].value_counts()
+        kw_models = fail_df.groupby('Keyword')['Model'].nunique()
+        if len(kw_counts) > 0 and len(kw_models) > 0:
+            top_kw = kw_counts.index[0]
+            top_n = kw_counts.iloc[0]
+            top_models = kw_models[top_kw]
+            auto_insight_lines.append(
+                f"• 핵심 결함 '{top_kw}': {top_n}건 발생, {top_models}개 모델에 영향 → 광범위한 구조적 이슈 가능성"
+            )
+        
+        # 3. 회귀 알람 (빌드 비교)
+        if len(builds) > 1:
+            latest_b = builds[-1]
+            prev_b = builds[-2]
+            latest_fail = fail_df[fail_df['Build_Num'] == latest_b]
+            prev_fail = fail_df[fail_df['Build_Num'] == prev_b]
+            latest_combo = set(zip(latest_fail['Model'], latest_fail['Keyword']))
+            prev_combo = set(zip(prev_fail['Model'], prev_fail['Keyword']))
+            new_alerts = latest_combo - prev_combo
+            if len(new_alerts) > 0:
+                auto_insight_lines.append(
+                    f"• 회귀 알람: 빌드 R00.0.{latest_b}에서 신규 결함 {len(new_alerts)}건 발생 → 빌드 변경 사항 즉시 검토 필요"
+                )
+            else:
+                auto_insight_lines.append(
+                    f"• 회귀 알람: 빌드 R00.0.{latest_b}에서 신규 결함 없음 ✓ (안정적)"
+                )
+    
+    if not auto_insight_lines:
+        auto_insight_lines = ["• 이번 달 분석 가능한 데이터 부족"]
+    
+    insight_text = "\n".join(auto_insight_lines)
+    
+    # 표 (6행으로 확장)
+    table = s9.shapes.add_table(6, 2, Inches(0.4), Inches(1.7),
+                                 Inches(12.6), Inches(0.48 * 6)).table
+    table.columns[0].width = Inches(2.5)
+    table.columns[1].width = Inches(10.1)
     set_cell(table.cell(0, 0), "구분", bold=True, size=12,
              color=RPT_HEADER_FG, bg=RPT_HEADER_BG, align=PP_ALIGN.CENTER)
     set_cell(table.cell(0, 1), "내용", bold=True, size=12,
              color=RPT_HEADER_FG, bg=RPT_HEADER_BG, align=PP_ALIGN.CENTER)
     
+    # 1행: 주요 결과
     set_cell(table.cell(1, 0), "주요 결과", bold=True, size=11, bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER)
     if len(df) > 0:
         result_text = f"• {month_str} Test {len(df):,}건 中 FAIL {len(fail_df):,}건 ({len(fail_df)/len(df)*100:.1f}%)\n"
@@ -2299,7 +2716,12 @@ def generate_ppt_report(df, fail_df, selected_month):
         result_text = "• 이번 달 데이터 없음"
     set_cell(table.cell(1, 1), result_text, size=10)
     
-    set_cell(table.cell(2, 0), "주요 이슈", bold=True, size=11, bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER)
+    # 2행: 핵심 인사이트 (NEW! - 분석가 자동 생성)
+    set_cell(table.cell(2, 0), "💡 핵심 인사이트", bold=True, size=11, bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER, color=RPT_CRITICAL)
+    set_cell(table.cell(2, 1), insight_text, size=10, bold=True)
+    
+    # 3행: 주요 이슈
+    set_cell(table.cell(3, 0), "주요 이슈", bold=True, size=11, bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER)
     if len(fail_df) > 0:
         top_kw = fail_df['Keyword'].value_counts().head(3)
         issue_text = "Top 3 Fail Type (건수 기준):\n"
@@ -2307,9 +2729,10 @@ def generate_ppt_report(df, fail_df, selected_month):
             issue_text += f"• {i}위 {kw}: {cnt}건\n"
     else:
         issue_text = "이번 달 Fail 이슈 없음 ✅"
-    set_cell(table.cell(2, 1), issue_text.strip(), size=10)
+    set_cell(table.cell(3, 1), issue_text.strip(), size=10)
     
-    set_cell(table.cell(3, 0), "Action Item", bold=True, size=11, bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER)
+    # 4행: Action Item
+    set_cell(table.cell(4, 0), "Action Item", bold=True, size=11, bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER)
     if len(fail_df) > 0:
         top_3 = fail_df['Keyword'].value_counts().head(3)
         action_text = "주요 검토 항목 (Fail 빈도 TOP 3):\n"
@@ -2319,10 +2742,11 @@ def generate_ppt_report(df, fail_df, selected_month):
         action_text += "• 다음 빌드에서 회귀 모니터링 필수"
     else:
         action_text = "별도 Action Item 없음"
-    set_cell(table.cell(3, 1), action_text, size=10)
+    set_cell(table.cell(4, 1), action_text, size=10)
     
-    set_cell(table.cell(4, 0), "차기 회의", bold=True, size=11, bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER)
-    set_cell(table.cell(4, 1), "다음 빌드 출시 후 1주 이내", size=10)
+    # 5행: 차기 회의
+    set_cell(table.cell(5, 0), "차기 회의", bold=True, size=11, bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER)
+    set_cell(table.cell(5, 1), "다음 빌드 출시 후 1주 이내", size=10)
     
     # ===== Slide 10: Thank you =====
     s10 = prs.slides.add_slide(prs.slide_layouts[6])
@@ -2358,7 +2782,7 @@ except Exception as e:
 st.sidebar.title("📋 메뉴")
 menu = st.sidebar.radio(
     "분석 메뉴 선택",
-    ["🏠 홈 (사이트 안내)", "🎯 필터 분석", "📊 전체 인사이트", "📈 전체 통계", "📈 Fail율 예측", "🚨 회귀 알람", "📁 데이터 업로드", "📥 보고서 생성"]
+    ["🏠 홈 (사이트 안내)", "🎯 필터 분석", "📊 전체 인사이트", "📈 전체 통계", "🚨 회귀 알람", "📁 데이터 업로드", "📥 보고서 생성"]
 )
 
 # 메뉴별 도움말 표시 여부
@@ -2386,10 +2810,8 @@ st.sidebar.markdown("""
   핵심 차트 6개 (카이제곱 포함)
 - **📈 전체 통계**  
   월별·고객사·매트릭스 분석
-- **📈 Fail율 예측**  
-  모델별 다음 빌드 예측
-- **🚨 회귀 알람**  
-  최신 빌드 자동 검출
+- **🚨 회귀 알람 + 예측**  
+  과거 회귀 검출 + 다음 빌드 예측
 - **📁 데이터 업로드**  
   엑셀/CSV 추가 → 즉시 분석
 - **📥 보고서 생성**  
@@ -2468,17 +2890,13 @@ if menu == "🏠 홈 (사이트 안내)":
         ### 📈 전체 통계
         **월별 추이**, **고객사별 분석**, **Test_Item × Fail_Type 매트릭스** 등 
         시간·조직 관점의 종합 통계.
-        
-        ### 📈 Fail율 예측
-        **모델별로** 과거 빌드 추이를 학습해 **다음 빌드의 Fail율을 예측**합니다. 
-        다항회귀 + 95% 신뢰구간으로 정확도를 제공합니다.
         """)
     
     with col_b:
         st.markdown("""
-        ### 🚨 회귀 알람
-        최신 빌드에서 **새로 등장한 결함(NEW)** 이나 **악화된 결함(WORSE)** 을 
-        자동 검출합니다. 모델 × 결함 조합 단위로 비교합니다.
+        ### 🚨 회귀 알람 + 예측
+        최신 빌드의 **신규/악화 결함(NEW/WORSE)** 자동 검출 + 
+        **모델별 다음 빌드 Fail율 예측**까지 한 화면에서.
         
         ### 📁 데이터 업로드
         주간 체크리스트 엑셀을 업로드하면 **자동으로 분석 데이터에 추가**됩니다. 
@@ -2547,39 +2965,30 @@ elif menu == "📈 전체 통계":
     st.markdown("---")
     render_full_statistics(df, fail_df)
 
-elif menu == "📈 Fail율 예측":
-    st.markdown("## 📈 Fail율 예측")
-    st.markdown("**과거 빌드 추이를 학습해 다음 빌드의 Fail율을 예측합니다**")
-    show_menu_help(
-        "📈 Fail율 예측",
-        "선택한 모델의 과거 빌드별 Fail율 추세를 학습해서 바로 다음 빌드의 Fail율을 예측합니다.",
-        [
-            "**모델 단위로 예측**: 같은 모델은 같은 FW 라인이 빌드별로 진화하므로 모델별로 따로 예측",
-            "**다항회귀 (2차)** + **표본 가중치** 적용으로 ∩ 곡선 추세 학습",
-            "**95% 신뢰구간**: 점추정값이 아닌 범위로 불확실성 표현",
-            "**Leave-One-Out 교차검증**: 모델 정확도를 객관적으로 측정",
-            "차트의 빨간 별표가 다음 빌드 예측값입니다",
-        ]
-    )
-    st.markdown("---")
-    render_fail_rate_prediction(df, fail_df)
-
 elif menu == "🚨 회귀 알람":
-    st.markdown("## 🚨 회귀 알람")
-    st.markdown("**최신 빌드에서 새로 등장하거나 악화된 결함을 자동 검출**")
+    st.markdown("## 🚨 회귀 알람 + 다음 빌드 예측")
+    st.markdown("**과거 회귀 검출 + 미래 빌드 Fail율 예측을 한 화면에서**")
     show_menu_help(
-        "🚨 회귀 알람",
-        "최신 빌드(예: 17920) vs 이전 빌드(예: 17751)를 모델 × Fail_Type 조합 단위로 비교해 회귀를 자동 검출합니다.",
+        "🚨 회귀 알람 + 예측",
+        "과거(최신 빌드 vs 이전 빌드)의 회귀를 검출하고, 미래(다음 빌드)의 Fail율을 예측합니다.",
         [
             "**🆕 NEW**: 이전 빌드에 없던 결함이 새로 등장",
             "**📈 WORSE**: 기존 결함이 더 많이 발생 (악화)",
-            "동일하거나 개선된 케이스는 알람에서 제외됩니다",
+            "**🔮 예측**: 모델별 다음 빌드의 Fail율 (다항회귀)",
             "표의 영상 링크를 클릭하면 결함 영상이 재생됩니다",
-            "단순 평균에 숨겨진 회귀를 모델 단위로 잡아내는 것이 핵심 가치입니다",
+            "회귀 검출 + 예측을 한 화면에서 = 과거와 미래의 통합 모니터링",
         ]
     )
     st.markdown("---")
-    render_regression_alert(df, fail_df)
+    
+    # 탭으로 구분
+    tab1, tab2 = st.tabs(["🚨 회귀 알람 (과거)", "🔮 다음 빌드 예측 (미래)"])
+    
+    with tab1:
+        render_regression_alert(df, fail_df)
+    
+    with tab2:
+        render_fail_rate_prediction(df, fail_df)
 
 elif menu == "📁 데이터 업로드":
     st.markdown("## 📁 데이터 업로드")
