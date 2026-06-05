@@ -410,8 +410,15 @@ def get_action_for_keyword(keyword):
     })
 
 
-def render_insight_box(title, what, so_what, why, business_impact=None, dev_actions=None, comparison=None, key_insight=None, severity="info"):
-    """공통 인사이트 박스 렌더링 (들여쓰기 없이 한 줄로 HTML 작성 - streamlit 코드블록 방지)"""
+def render_insight_box(title, finding, action, severity="info", **kwargs):
+    """간결한 인사이트 박스 (한 문장 발견 + 한 줄 액션)
+    
+    title: 인사이트 제목 (예: "빌드 추세 분석 — 안정화 진행 중")
+    finding: 한 문장 발견 (수치 + 의미 + 결론을 한 문장에)
+    action: 다음 액션 한 줄
+    severity: info/warning/critical/success
+    **kwargs: 호환성을 위한 추가 인자 (무시됨, 옛 코드 호환)
+    """
     color_map = {
         "info": ("#3498db", "#EBF5FF"),
         "warning": ("#f39c12", "#FFF5E6"),
@@ -420,32 +427,14 @@ def render_insight_box(title, what, so_what, why, business_impact=None, dev_acti
     }
     border_color, bg_color = color_map.get(severity, color_map["info"])
     
-    # 핵심 인사이트 강조 영역
-    key_section = ""
-    if key_insight:
-        key_section = f'<div style="background-color:{border_color};color:white;padding:0.7rem 1rem;border-radius:6px;margin-bottom:0.8rem;font-weight:600;font-size:0.95rem;line-height:1.5;">🎯 핵심 인사이트<br><span style="font-size:0.9rem;font-weight:500;">{key_insight}</span></div>'
-    
-    # 액션 섹션
-    action_section = ""
-    if business_impact or dev_actions or comparison:
-        action_section = f'<div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px dashed {border_color};">'
-        if business_impact:
-            action_section += f'<div style="margin-bottom:0.5rem;"><span style="color:{border_color};font-weight:600;">💼 비즈니스 임팩트:</span> {business_impact}</div>'
-        if dev_actions:
-            actions_html = "".join([f'<li style="margin-bottom:0.25rem;">{a}</li>' for a in dev_actions])
-            action_section += f'<div style="margin-bottom:0.5rem;"><span style="color:{border_color};font-weight:600;">🛠️ 개발 액션 (우선순위순):</span><ul style="margin:0.3rem 0 0 0.5rem;padding-left:1.25rem;">{actions_html}</ul></div>'
-        if comparison:
-            action_section += f'<div><span style="color:{border_color};font-weight:600;">🔁 비교 분석 권장:</span> {comparison}</div>'
-        action_section += "</div>"
-    
-    # 전체 HTML (한 줄로)
-    html = f'<div style="background-color:{bg_color};border-left:4px solid {border_color};border-radius:8px;padding:1rem 1.25rem;margin:1rem 0;font-family:\'Pretendard Variable\', sans-serif;"><div style="font-weight:700;font-size:1.05rem;color:#1a1a1a;margin-bottom:0.6rem;">💡 {title}</div>{key_section}<div style="font-size:0.9rem;color:#2c3e50;line-height:1.6;"><div style="margin-bottom:0.4rem;"><span style="color:{border_color};font-weight:600;">📊 수치:</span> {what}</div><div style="margin-bottom:0.4rem;"><span style="color:{border_color};font-weight:600;">🔎 의미:</span> {so_what}</div><div style="margin-bottom:0.4rem;"><span style="color:{border_color};font-weight:600;">🔍 원인 추정:</span> {why}</div>{action_section}</div></div>'
+    # HTML (한 줄로 작성 - 코드블록 방지)
+    html = f'<div style="background-color:{bg_color};border-left:4px solid {border_color};border-radius:8px;padding:1rem 1.25rem;margin:1rem 0;font-family:\'Pretendard Variable\', sans-serif;"><div style="font-weight:700;font-size:1rem;color:#1a1a1a;margin-bottom:0.6rem;">💡 {title}</div><div style="font-size:0.95rem;color:#2c3e50;line-height:1.55;margin-bottom:0.5rem;">{finding}</div><div style="background-color:white;padding:0.6rem 0.8rem;border-radius:6px;border:1px solid {border_color};font-size:0.9rem;color:{border_color};font-weight:600;">🎯 다음 액션: <span style="color:#2c3e50;font-weight:500;">{action}</span></div></div>'
     
     st.markdown(html, unsafe_allow_html=True)
 
 
 def insight_build_trend(df, fail_df):
-    """빌드별 ∩ 곡선 인사이트 (6단계)"""
+    """빌드별 ∩ 곡선 인사이트 (한 문장 + 액션)"""
     build_summary = df.groupby('Build_Num').apply(
         lambda x: (x['Result'] == 'FAIL').sum() / len(x) * 100
     ).round(2)
@@ -456,56 +445,31 @@ def insight_build_trend(df, fail_df):
     peak_rate = build_summary.max()
     latest_build = build_summary.index[-1]
     latest_rate = build_summary.iloc[-1]
-    min_rate = build_summary.min()
-    diff_peak_latest = peak_rate - latest_rate
+    diff = peak_rate - latest_rate
     
-    # 추세 판단
-    if diff_peak_latest > 5:
-        trend = "개선"
+    if diff > 5:
         severity = "success"
-        biz = "펌웨어 안정화 진행 중 → 다음 출시 일정 정상 진행 가능. 회귀 원인 분석 결과 보존 시 향후 신규 빌드 품질 ↑"
-        actions = [
-            f"⚡ 즉시: 빌드 {peak_build}와 안정 빌드 {latest_build}의 코드 diff로 회귀 원인 확정",
-            "📋 단주: 회귀 발생 패턴을 회귀 테스트 시나리오에 추가",
-            "🔄 장주: 빌드 출시 전 자동 회귀 검증 파이프라인 구축",
-        ]
-        comparison = f"빌드 {peak_build} (정점) ↔ 빌드 {latest_build} (현재) 코드 비교로 효과적인 수정 사항 식별"
+        finding = f"빌드 <b>{peak_build}</b> ({peak_rate:.1f}%) 정점 후 최신 빌드 <b>{latest_build}</b> ({latest_rate:.1f}%)까지 <b>-{diff:.1f}%p 안정화</b> → 후속 빌드 수정 효과 확인됨"
+        action = f"빌드 {peak_build}의 변경 사항 분석해서 안정 패턴을 표준 가이드로 정리"
     elif latest_rate > peak_rate * 0.9:
-        trend = "악화"
         severity = "warning"
-        biz = "최신 빌드 Fail율이 정점 수준 → 출시 일정 지연 리스크 ⚠️. 고객사 클레임 가능성 ↑"
-        actions = [
-            f"⚡ 즉시: 빌드 {latest_build}의 변경 사항 전체 회귀 검증",
-            f"📋 단주: 안정 시점 빌드와 코드 diff로 회귀 원인 추적",
-            "🔄 장주: 빌드 출시 전 통계적 회귀 임계값 자동 알람 구축",
-        ]
-        comparison = f"안정 시점 빌드 ↔ 빌드 {latest_build} (현재)의 모듈별 코드 변경 비교"
+        finding = f"최신 빌드 <b>{latest_build}</b> ({latest_rate:.1f}%)이 정점({peak_rate:.1f}%) 수준에 근접 → <b>회귀 가능성</b> ⚠️"
+        action = f"빌드 {latest_build}의 변경 사항 회귀 검증 + 다음 빌드 출시 보류 검토"
     else:
-        trend = "안정"
         severity = "info"
-        biz = "Fail율 안정 단계 → 현 일정 유지 가능. 다음 빌드부터 신규 기능 추가 가능 시점."
-        actions = [
-            f"⚡ 즉시: 현 안정 빌드({latest_build})를 안정성 기준 베이스라인으로 설정",
-            "📋 단주: 신규 기능 추가 시 회귀 영향도 사전 평가",
-            "🔄 장주: 안정 빌드 대비 자동 회귀 검증 활성화",
-        ]
-        comparison = "이전 안정 빌드와의 Fail율 ±2%p 이내 유지 여부 모니터링"
+        finding = f"빌드별 Fail율이 {min(build_summary):.1f}%~{peak_rate:.1f}% 범위에서 <b>안정세 유지</b> (최신 {latest_rate:.1f}%)"
+        action = f"현 안정 빌드({latest_build})를 안정성 베이스라인으로 설정하고 모니터링 유지"
     
     render_insight_box(
-        key_insight=f"빌드 {peak_build}({peak_rate:.1f}%) 정점 후 {trend} 단계로 진입 → 변동 {diff_peak_latest:+.1f}%p, 다음 빌드 모니터링 권장",
-        title=f"빌드 추세 분석 — {trend} 단계",
-        what=f"빌드 {peak_build}에서 {peak_rate:.1f}%로 정점 → 최신 빌드 {latest_build} {latest_rate:.1f}% (변동 {diff_peak_latest:+.1f}%p)",
-        so_what=f"펌웨어가 ∩ 곡선 패턴으로 진화하며, 정점 대비 {abs(diff_peak_latest):.1f}%p {'안정화' if diff_peak_latest > 0 else '여전히 높음'}",
-        why=f"빌드 {peak_build} 구간 코드 변경에서 회귀 발생 → 후속 빌드에서 수정 반영 추정",
-        business_impact=biz,
-        dev_actions=actions,
-        comparison=comparison,
+        title=f"빌드 추세 분석",
+        finding=finding,
+        action=action,
         severity=severity
     )
 
 
 def insight_ic_failrate(df, fail_df):
-    """IC별 Fail율 인사이트 (6단계)"""
+    """IC별 Fail율 인사이트 (한 문장 + 액션)"""
     ic_summary = df.groupby('IC').apply(
         lambda x: (x['Result'] == 'FAIL').sum() / len(x) * 100
     ).round(2)
@@ -517,7 +481,6 @@ def insight_ic_failrate(df, fail_df):
     avg_rate = ic_summary.mean()
     ratio = max_rate / avg_rate
     
-    # 해당 IC의 주요 결함
     ic_fails = fail_df[fail_df['IC'] == max_ic]
     if len(ic_fails) == 0 or 'Keyword' not in ic_fails.columns:
         return
@@ -528,40 +491,21 @@ def insight_ic_failrate(df, fail_df):
     top_keyword_pct = top_keyword_counts.iloc[0] / len(ic_fails) * 100
     area = KEYWORD_DOMAIN_MAP.get(top_keyword, {}).get('area', '관련 모듈')
     
-    # ACTION_PLAYBOOK에서 액션 가져오기
-    playbook = get_action_for_keyword(top_keyword)
+    severity = "critical" if ratio > 1.3 else "warning"
     
-    severity = "critical" if ratio > 1.5 else "warning"
-    
-    # 비즈니스 임팩트에 IC 정보 추가
-    biz = f"{max_ic} 사용 모델의 출시/운영 리스크 ↑. {playbook['business']}"
-    
-    # 개발 액션 (IC별 컨텍스트 추가)
-    actions = [a.replace('🔄 장주: ', f'🔄 장주: [{max_ic}] ').replace('📋 단주: ', f'📋 단주: [{max_ic}] ').replace('⚡ 즉시: ', f'⚡ 즉시: [{max_ic}] ') for a in playbook['dev']]
-    
-    # 비교 분석 (IC별 컨텍스트 추가)
-    other_ics = [ic for ic in ic_summary.index if ic != max_ic]
-    safer_ic = ic_summary.drop(max_ic).idxmin() if len(other_ics) > 0 else None
-    if safer_ic:
-        comparison = f"{max_ic} vs {safer_ic} (Fail율 {ic_summary[safer_ic]:.1f}%)의 '{area}' 모듈 알고리즘 차이 비교 · {playbook['comparison']}"
-    else:
-        comparison = playbook['comparison']
+    finding = f"<b>{max_ic}</b> Fail율 <b>{max_rate:.1f}%</b> (평균 {ratio:.1f}배) + <b>{top_keyword}</b> 결함이 {top_keyword_pct:.0f}% 집중 → <b>{area}</b> 모듈이 병목"
+    action = f"{max_ic} 펌웨어의 {area} 알고리즘 우선 검토 + 안정 IC와 코드 diff 비교"
     
     render_insight_box(
-        key_insight=f"{max_ic} Fail율 평균 {ratio:.1f}배 + '{top_keyword}' {top_keyword_pct:.0f}% 집중 → '{area}' 모듈 우선 검토 필요",
-        title=f"{max_ic} IC 집중 결함 — 우선 검토 대상",
-        what=f"{max_ic}의 Fail율은 {max_rate:.1f}%로, 다른 IC 평균({avg_rate:.1f}%) 대비 {ratio:.1f}배 높음. '{top_keyword}' 결함이 {top_keyword_pct:.0f}% 집중",
-        so_what=f"전체 IC 중 가장 높은 Fail율로, {max_ic} 칩이 시스템 안정성의 주요 병목 지점",
-        why=f"'{top_keyword}' 결함이 '{area}' 영역의 구조적 이슈로, {max_ic} 펌웨어 특성과 맞물려 반복 발생 추정",
-        business_impact=biz,
-        dev_actions=actions,
-        comparison=comparison,
+        title=f"IC별 결함 분석",
+        finding=finding,
+        action=action,
         severity=severity
     )
 
 
 def insight_failtype_impact(fail_df):
-    """Fail_Type 영향 분석 인사이트 (6단계)"""
+    """Fail_Type 영향 분석 (한 문장 + 액션)"""
     if 'Keyword' not in fail_df.columns:
         return
     fail_kw = fail_df[fail_df['Keyword'] != '']
@@ -577,54 +521,36 @@ def insight_failtype_impact(fail_df):
     
     wide_kw = kw_models.idxmax()
     wide_models = kw_models[wide_kw]
-    wide_count = kw_counts[wide_kw]
     
     area = KEYWORD_DOMAIN_MAP.get(top_kw, {}).get('area', '관련 모듈')
-    playbook = get_action_for_keyword(top_kw)
     
     if top_kw == wide_kw:
-        focus = f"'{top_kw}'가 발생 빈도({top_count}건)와 영향 범위({top_models}개 모델) 모두 1위"
-        why_text = f"'{top_kw}'가 '{area}' 모듈의 광범위한 구조적 이슈로 발생"
+        finding = f"<b>{top_kw}</b>가 빈도 1위({top_count}건) + 영향 범위 1위({top_models}개 모델) → <b>{area}</b> 모듈의 광범위 구조적 이슈"
+        action = f"{area} 모듈 최우선 개선 + 영향 모델 {top_models}개 일괄 회귀 테스트"
     else:
-        focus = f"'{top_kw}'는 빈도 1위({top_count}건, {top_models}개 모델), '{wide_kw}'는 범위 1위({wide_models}개 모델, {wide_count}건)"
-        why_text = f"빈도 1위 '{top_kw}'는 특정 패턴 집중, 범위 1위 '{wide_kw}'는 광범위 영향 → 두 결함의 원인이 다름"
-    
-    biz = f"광범위 영향 결함 → 다수 모델 동시 출시 리스크. {playbook['business']}"
+        finding = f"빈도 1위 <b>{top_kw}</b>({top_count}건, {top_models}개 모델) vs 범위 1위 <b>{wide_kw}</b>({wide_models}개 모델) → 두 결함의 원인이 다름"
+        action = f"{top_kw}는 빈도 집중 분석, {wide_kw}는 광범위 영향 분석으로 이원화 대응"
     
     render_insight_box(
-        key_insight=f"'{top_kw}' = 빈도/영향 최대 결함 → '{area}' 모듈 우선 개선 필수",
-        title="결함 영향 분석 — 우선순위 결정",
-        what=focus,
-        so_what="발생 빈도와 영향 범위는 다른 차원이므로 두 축을 모두 고려한 우선순위 필요",
-        why=why_text,
-        business_impact=biz,
-        dev_actions=playbook['dev'],
-        comparison=f"안정 모델/빌드의 '{area}' 파라미터와 코드 비교 · {playbook['comparison']}",
+        title="결함 영향 분석",
+        finding=finding,
+        action=action,
         severity="warning"
     )
 
 
 def insight_chisquare(df, fail_df):
-    """카이제곱 대조 분석 인사이트 (6단계)"""
+    """카이제곱 대조 분석 (한 문장 + 액션)"""
     render_insight_box(
-        key_insight="합격률은 IC/고객사와 무관(p≥0.05), 결함 종류만 매우 유의(p<0.001) → 단순 합격률 KPI가 아닌 그룹별 결함 패턴 전략 필요",
-        title="합격률 vs 결함 종류 — 대조 분석 결과",
-        what="IC/고객사와 합격률은 통계적으로 무관(p≥0.05), 결함 종류는 매우 유의(p<0.001, Cramér's V=0.75)",
-        so_what="합격률 자체는 IC·고객사마다 비슷하지만, Fail이 발생하면 그 종류는 그룹마다 다름",
-        why="동일한 테스트 절차로 검사하지만, IC 칩셋과 고객사 모델 특성에 따라 약점이 다른 곳에 나타남",
-        business_impact="단순 '합격률 KPI'로는 IC·고객사 우열을 가릴 수 없음 → 그룹별 차별화 전략 수립 필수",
-        dev_actions=[
-            "⚡ 즉시: 합격률 단일 지표가 아닌 'IC별 주요 결함 카드' 대시보드 도입",
-            "📋 단주: IC·고객사별 결함 패턴 차이를 정기 분석 항목으로 추가",
-            "🔄 장주: 그룹별 맞춤 테스트 시나리오 자동 추천 시스템 구축",
-        ],
-        comparison="IC × 결함 매트릭스 정기 모니터링 → 결함 패턴 변화 추적",
+        title="합격률 vs 결함 종류 — 대조 분석",
+        finding="합격률은 IC/고객사와 <b>무관</b>(p≥0.05)이지만, 결함 종류는 <b>매우 유의</b>(p&lt;0.001, Cramér's V=0.75) → 그룹별 약점이 다른 곳에 나타남",
+        action="단순 합격률 KPI가 아닌, IC·고객사별 결함 패턴 카드 도입으로 차별화 대응 전략 수립",
         severity="info"
     )
 
 
 def insight_monthly_trend(df, fail_df):
-    """월별 추이 인사이트 (6단계)"""
+    """월별 추이 인사이트 (한 문장 + 액션)"""
     df_copy = df.copy()
     df_copy['Test_Date'] = pd.to_datetime(df_copy['Test_Date'], errors='coerce')
     df_copy = df_copy.dropna(subset=['Test_Date'])
@@ -645,51 +571,28 @@ def insight_monthly_trend(df, fail_df):
     diff = latest_rate - avg_rate
     
     if diff < -3:
-        trend = "개선세"
         severity = "success"
-        biz = "최근 펌웨어 품질 안정화 → 다음 분기 출시 일정 정상 진행 가능"
-        actions = [
-            f"⚡ 즉시: {peak_month}에서 안정화된 빌드의 변경 사항 모범 사례화",
-            "📋 단주: 효과적 수정 사항을 회사 표준 가이드라인에 추가",
-            "🔄 장주: 안정성 향상 패턴을 신규 모델 개발에 적용",
-        ]
-        comparison = f"{peak_month} (정점) vs {latest_month} (현재) 빌드별 코드 변경 누적 비교"
+        finding = f"<b>{peak_month}</b> 정점({peak_rate:.1f}%) 이후 <b>{latest_month}</b> {latest_rate:.1f}%로 평균 대비 {diff:+.1f}%p <b>개선세</b>"
+        action = f"{peak_month} 이후 적용된 펌웨어 수정 사항을 회사 표준 가이드로 정리"
     elif diff > 3:
-        trend = "악화세"
         severity = "warning"
-        biz = "최근 Fail율 급증 → 출시 지연 가능성 ↑. 빌드 출시 일정 재검토 필요"
-        actions = [
-            f"⚡ 즉시: 최근 {latest_month}에 출시된 빌드의 회귀 사항 즉시 분석",
-            "📋 단주: 빌드 출시 주기를 단축하고 회귀 테스트 강화",
-            "🔄 장주: 빌드별 자동 회귀 알람 시스템 강화",
-        ]
-        comparison = f"{latest_month} 이전 안정 시점과 최근 빌드의 변경 사항 누적 비교"
+        finding = f"<b>{latest_month}</b> Fail율 {latest_rate:.1f}%, 평균({avg_rate:.1f}%) 대비 {diff:+.1f}%p <b>악화</b> ⚠️"
+        action = f"{latest_month} 출시 빌드의 변경 사항 즉시 회귀 검증"
     else:
-        trend = "안정세"
         severity = "info"
-        biz = "현재 안정 단계 유지 중 → 일정 변경 없음. 신규 기능 추가 검토 가능"
-        actions = [
-            "⚡ 즉시: 현 안정성 기준을 회사 SQA 표준으로 확정",
-            "📋 단주: 신규 기능 추가 시 영향도 사전 평가",
-            "🔄 장주: 분기별 펌웨어 품질 트렌드 리포트 자동화",
-        ]
-        comparison = "월별 Fail율 ±3%p 이내 유지 여부 정기 모니터링"
+        finding = f"월별 Fail율이 {monthly.min():.1f}%~{peak_rate:.1f}% 범위에서 <b>안정 유지</b> (최근 {latest_month} {latest_rate:.1f}%)"
+        action = "현 품질 수준을 회사 SQA 표준 베이스라인으로 확정 후 신규 기능 검토"
     
     render_insight_box(
-        key_insight=f"{peak_month} 정점({peak_rate:.1f}%) → 현재 {trend} (평균 대비 {diff:+.1f}%p)",
-        title=f"월별 추이 — {trend}",
-        what=f"{peak_month} 정점({peak_rate:.1f}%) → {latest_month} {latest_rate:.1f}% (평균 {avg_rate:.1f}% 대비 {diff:+.1f}%p)",
-        so_what=f"최근 월 Fail율이 전체 평균보다 {abs(diff):.1f}%p {'낮음' if diff < 0 else '높음'}",
-        why=f"{peak_month}의 신규 빌드 회귀 후 후속 빌드에서 수정 반영된 것으로 추정",
-        business_impact=biz,
-        dev_actions=actions,
-        comparison=comparison,
+        title=f"월별 Fail율 추이",
+        finding=finding,
+        action=action,
         severity=severity
     )
 
 
 def insight_customer_analysis(df, fail_df):
-    """고객사 분석 인사이트 (6단계)"""
+    """고객사 분석 (한 문장 + 액션)"""
     cust_summary = df.groupby('Customer').apply(
         lambda x: (x['Result'] == 'FAIL').sum() / len(x) * 100
     ).round(2)
@@ -708,41 +611,28 @@ def insight_customer_analysis(df, fail_df):
         if len(max_kw_series) > 0:
             max_kw = max_kw_series.index[0]
             area = KEYWORD_DOMAIN_MAP.get(max_kw, {}).get('area', '관련 모듈')
-            playbook = get_action_for_keyword(max_kw)
         else:
             max_kw = "다양한 결함"
             area = "다양한 모듈"
-            playbook = get_action_for_keyword("")
     else:
         max_kw = "다양한 결함"
         area = "다양한 모듈"
-        playbook = get_action_for_keyword("")
     
     severity = "warning" if spread > 5 else "info"
     
-    biz = f"{max_cust} 고객사 클레임 가능성 ↑. SLA 위반 시 패널티 리스크. {playbook['business']}"
-    
-    actions = [
-        f"⚡ 즉시: {max_cust} 전용 검증 시나리오 강화 ('{max_kw}' 집중 테스트)",
-        f"📋 단주: {max_cust}와 {min_cust} ({min_rate:.1f}%)의 사용 환경/모델 라인업 차이 분석",
-        f"🔄 장주: 고객사별 결함 패턴 분기 리포트 자동화 + SLA 자동 모니터링",
-    ]
+    finding = f"고객사별 Fail율 격차 <b>{spread:.1f}%p</b> ({min_cust} {min_rate:.1f}% ~ {max_cust} {max_rate:.1f}%) → {max_cust}의 주요 결함은 <b>{max_kw}</b>"
+    action = f"{max_cust} 전용 {area} 영역 검증 시나리오 강화 + 모델 라인업 차이 분석"
     
     render_insight_box(
-        key_insight=f"고객사별 Fail율 격차 {spread:.1f}%p ({min_cust}~{max_cust}) → 동일 펌웨어인데 고객사별 차이 = 모델별 맞춤 검증 필수",
-        title="고객사별 결함 패턴 — 맞춤 전략 필요",
-        what=f"고객사별 Fail율 {min_rate:.1f}%({min_cust}) ~ {max_rate:.1f}%({max_cust}), 격차 {spread:.1f}%p. {max_cust} 주요 결함은 '{max_kw}'",
-        so_what=f"동일 펌웨어인데도 고객사별 차이 존재 → 사용 환경/모델 라인업 특성 차이 반영",
-        why=f"{max_cust}의 모델 라인업이 '{area}' 영역에 특히 민감한 사용 패턴을 보임",
-        business_impact=biz,
-        dev_actions=actions,
-        comparison=f"{max_cust} vs {min_cust} 고객사 환경에서 '{area}' 모듈의 동작 차이 비교",
+        title="고객사별 결함 패턴",
+        finding=finding,
+        action=action,
         severity=severity
     )
 
 
 def insight_test_item_matrix(fail_df):
-    """Test_Item × Fail_Type 매트릭스 인사이트 (6단계)"""
+    """Test_Item × Fail_Type 매트릭스 (한 문장 + 액션)"""
     if 'Test_Item' not in fail_df.columns or 'Keyword' not in fail_df.columns:
         return
     fail_kw = fail_df[fail_df['Keyword'] != '']
@@ -757,53 +647,25 @@ def insight_test_item_matrix(fail_df):
     top_count = pair_counts.iloc[0]
     test_item, keyword = top_pair
     area = KEYWORD_DOMAIN_MAP.get(keyword, {}).get('area', '관련 모듈')
-    playbook = get_action_for_keyword(keyword)
     
-    item_keyword_count = fail_kw.groupby('Test_Item')['Keyword'].nunique().sort_values(ascending=False)
-    if len(item_keyword_count) > 0:
-        diverse_item = item_keyword_count.index[0]
-        diverse_n = item_keyword_count.iloc[0]
-    else:
-        diverse_item = test_item
-        diverse_n = 0
-    
-    biz = f"특정 테스트 시나리오에서 특정 결함 집중 → 해당 시나리오의 코드 경로 결함 추정. {playbook['business']}"
-    
-    actions = [
-        f"⚡ 즉시: '{test_item}' 시나리오의 코드 경로 + '{area}' 모듈 결함 디버깅",
-        f"📋 단주: '{diverse_item}' 종합 검증 강화 ({diverse_n}종 결함 발생)",
-        f"🔄 장주: 핫스팟 시나리오 우선 회귀 테스트 파이프라인 구축",
-    ]
+    finding = f"<b>{test_item}</b> × <b>{keyword}</b> = <b>{top_count}건</b> 핫스팟 발견 → {area} 모듈의 약점이 해당 시나리오에서 자극됨"
+    action = f"{test_item} 시나리오의 코드 경로 + {area} 모듈 우선 디버깅"
     
     render_insight_box(
-        key_insight=f"'{test_item}' × '{keyword}' = {top_count}건 핫스팟 → 해당 시나리오 코드 경로 + '{area}' 모듈 우선 점검",
-        title="Test_Item × Fail_Type 매트릭스 — 핫스팟 발견",
-        what=f"가장 빈번한 조합: '{test_item}' × '{keyword}' ({top_count}건). 가장 다양한 결함 발생 항목: '{diverse_item}' ({diverse_n}종)",
-        so_what=f"특정 시나리오에서 특정 결함이 집중되는 핫스팟이 존재하며, '{diverse_item}'은 다양한 결함이 발생하는 취약 항목",
-        why=f"'{test_item}' 시나리오가 '{area}' 모듈의 약점을 자극하는 조건을 가진 것으로 추정",
-        business_impact=biz,
-        dev_actions=actions,
-        comparison=f"'{test_item}' 시나리오 성공/실패 케이스의 입력 패턴 비교 · 안정 모델의 동일 시나리오 결과와 대조",
+        title="Test_Item × Fail_Type 핫스팟",
+        finding=finding,
+        action=action,
         severity="warning"
     )
 
 
 def insight_regression_alert(alerts_df, latest_build, prev_build, df, fail_df):
-    """회귀 알람 인사이트 (6단계)"""
+    """회귀 알람 (한 문장 + 액션)"""
     if len(alerts_df) == 0:
         render_insight_box(
-            key_insight=f"빌드 {latest_build} 회귀 미발생 → 출시 가능 + 안정성 베이스라인으로 활용",
             title="회귀 알람 — 정상 상태 ✅",
-            what=f"최신 빌드 {latest_build}에서 신규/악화 결함 미검출",
-            so_what=f"이전 빌드 {prev_build} 대비 회귀가 없는 안정적 빌드",
-            why="펌웨어 변경이 기존 기능에 부정적 영향을 주지 않은 것으로 추정",
-            business_impact="현 빌드 출시 가능 ✅. 안정 상태로 신규 기능 추가 검토 가능 시점",
-            dev_actions=[
-                f"⚡ 즉시: 빌드 {latest_build}를 안정성 베이스라인으로 설정",
-                "📋 단주: 회귀 없는 변경 사항을 코드 리뷰 가이드로 정리",
-                "🔄 장주: 자동 회귀 검증 파이프라인 유지 관리",
-            ],
-            comparison=f"빌드 {prev_build} ↔ {latest_build} 회귀 미발생 패턴 분석 → 향후 안정 빌드 작성 가이드 도출",
+            finding=f"최신 빌드 <b>{latest_build}</b>에서 이전 빌드 {prev_build} 대비 신규/악화 결함 <b>미검출</b>",
+            action=f"빌드 {latest_build}를 안정성 베이스라인으로 설정하고 출시 진행 가능",
             severity="success"
         )
         return
@@ -817,33 +679,22 @@ def insight_regression_alert(alerts_df, latest_build, prev_build, df, fail_df):
     worst_prev = alerts_df.loc[worst_idx, 'prev']
     worst_latest = alerts_df.loc[worst_idx, 'latest']
     area = KEYWORD_DOMAIN_MAP.get(worst_keyword, {}).get('area', '관련 모듈')
-    playbook = get_action_for_keyword(worst_keyword)
     
     if worst_prev == 0:
-        change = f"신규 발생 (0 → {worst_latest}건)"
+        change = f"0→{worst_latest}건 (신규)"
     else:
         pct = (worst_latest - worst_prev) / worst_prev * 100
-        change = f"{worst_prev} → {worst_latest}건 ({pct:+.0f}%)"
+        change = f"{worst_prev}→{worst_latest}건 ({pct:+.0f}%)"
     
     severity = "critical" if n_new > 3 or n_worse > 5 else "warning"
     
-    biz = f"빌드 {latest_build} 출시 보류 검토 필요 ⚠️. 회귀 미수정 시 고객사 클레임 직결. {playbook['business']}"
-    
-    actions = [
-        f"⚡ 즉시: {worst_model}의 빌드 {prev_build} ↔ {latest_build} 코드 diff에서 '{area}' 모듈 변경 확인",
-        f"📋 단주: 신규 결함 {n_new}건 즉시 수정 + 빌드 {latest_build} 재빌드 검토",
-        "🔄 장주: 회귀 자동 검출 → 출시 차단 게이트 자동화 시스템 구축",
-    ]
+    finding = f"빌드 <b>{latest_build}</b>에서 <b>NEW {n_new}건 + WORSE {n_worse}건</b> 회귀 발생, 최대: {worst_model} × {worst_keyword} ({change})"
+    action = f"{worst_model}의 {area} 코드 변경 즉시 검토 + 빌드 {latest_build} 출시 보류 검토"
     
     render_insight_box(
-        key_insight=f"빌드 {latest_build}에서 NEW {n_new}건 + WORSE {n_worse}건 회귀 → 출시 보류 검토, {worst_model}의 '{area}' 모듈 즉시 점검",
         title=f"회귀 알람 — {n_new + n_worse}건 검출",
-        what=f"NEW {n_new}건, WORSE {n_worse}건. 최대: {worst_model} × {worst_keyword} ({change})",
-        so_what=f"빌드 {prev_build} → {latest_build} 변경이 일부 기능에 부정적 영향 → 회귀 발생",
-        why=f"'{worst_keyword}'의 검토 영역인 '{area}'에서 빌드 {latest_build}의 코드 변경 부작용 가능성",
-        business_impact=biz,
-        dev_actions=actions,
-        comparison=f"빌드 {prev_build} (안정) ↔ {latest_build} (회귀)의 '{area}' 모듈 전체 코드 diff 비교",
+        finding=finding,
+        action=action,
         severity=severity
     )
 
