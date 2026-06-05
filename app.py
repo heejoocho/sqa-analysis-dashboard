@@ -505,34 +505,66 @@ def insight_ic_failrate(df, fail_df):
 
 
 def insight_failtype_impact(fail_df):
-    """Fail_Type 영향 분석 (한 문장 + 액션)"""
+    """Fail_Type 영향 분석 — 위험도 가중 건수(risk score) 포함"""
     if 'Keyword' not in fail_df.columns:
         return
     fail_kw = fail_df[fail_df['Keyword'] != '']
+
+    # 미분류 비중 경고
+    unclassified = fail_df[fail_df['Keyword'] == '']
+    unclassified_pct = len(unclassified) / len(fail_df) * 100 if len(fail_df) > 0 else 0
+    if unclassified_pct >= 20:
+        render_insight_box(
+            title="미분류 결함 비중 경고",
+            finding=f"Keyword가 비어있는 Fail 건이 전체의 <b>{unclassified_pct:.1f}%</b>({len(unclassified)}건) — "
+                    f"원인 분류가 안 된 결함이 많아 인사이트 신뢰도가 낮아집니다",
+            action="SQA 팀과 Keyword 분류 기준 재정립 후 미분류 건 소급 분류 진행",
+            severity="warning"
+        )
+
     if len(fail_kw) == 0:
         return
-    
+
     kw_counts = fail_kw['Keyword'].value_counts()
     kw_models = fail_kw.groupby('Keyword')['Model'].nunique()
-    
+
+    # 위험도 가중 점수 (건수 × severity 가중치)
+    risk_scores = {}
+    for kw, cnt in kw_counts.items():
+        weight = SEVERITY_MAP.get(kw, 1)
+        risk_scores[kw] = cnt * weight
+    top_risk_kw = max(risk_scores, key=risk_scores.get)
+    top_risk_score = risk_scores[top_risk_kw]
+
     top_kw = kw_counts.index[0]
     top_count = kw_counts.iloc[0]
     top_models = kw_models[top_kw]
-    
+
     wide_kw = kw_models.idxmax()
     wide_models = kw_models[wide_kw]
-    
+
     area = KEYWORD_DOMAIN_MAP.get(top_kw, {}).get('area', '관련 모듈')
-    
+
     if top_kw == wide_kw:
-        finding = f"<b>{top_kw}</b>가 빈도 1위({top_count}건) + 영향 범위 1위({top_models}개 모델) → <b>{area}</b> 모듈의 광범위 구조적 이슈"
+        finding = (
+            f"<b>{top_kw}</b>가 빈도 1위({top_count}건) + 영향 범위 1위({top_models}개 모델) → "
+            f"<b>{area}</b> 모듈의 광범위 구조적 이슈 · "
+            f"위험도 가중 점수(건수×심각도) 최고: <b>{top_risk_kw}</b> ({top_risk_score}점)"
+        )
         action = f"{area} 모듈 최우선 개선 + 영향 모델 {top_models}개 일괄 회귀 테스트"
     else:
-        finding = f"빈도 1위 <b>{top_kw}</b>({top_count}건, {top_models}개 모델) vs 범위 1위 <b>{wide_kw}</b>({wide_models}개 모델) → 두 결함의 원인이 다름"
-        action = f"{top_kw}는 빈도 집중 분석, {wide_kw}는 광범위 영향 분석으로 이원화 대응"
-    
+        finding = (
+            f"빈도 1위 <b>{top_kw}</b>({top_count}건, {top_models}개 모델) vs "
+            f"범위 1위 <b>{wide_kw}</b>({wide_models}개 모델) → 두 결함의 원인이 다름 · "
+            f"위험도 가중 최고: <b>{top_risk_kw}</b> ({top_risk_score}점)"
+        )
+        action = (
+            f"{top_kw}는 빈도 집중 분석, {wide_kw}는 광범위 영향 분석으로 이원화 대응 · "
+            f"위험도 가중 기준 {top_risk_kw} 우선 처리"
+        )
+
     render_insight_box(
-        title="결함 영향 분석",
+        title="결함 영향 분석 (위험도 가중 포함)",
         finding=finding,
         action=action,
         severity="warning"
@@ -540,12 +572,76 @@ def insight_failtype_impact(fail_df):
 
 
 def insight_chisquare(df, fail_df):
-    """카이제곱 대조 분석 (한 문장 + 액션)"""
+    """카이제곱 대조 분석 — 실제 계산값 동적 바인딩"""
+    from scipy.stats import chi2_contingency
+
+    def _chi2_calc(data, var1, var2):
+        try:
+            ct = pd.crosstab(data[var1], data[var2])
+            if ct.size == 0 or min(ct.shape) < 2:
+                return None, None
+            chi2, p, dof, _ = chi2_contingency(ct)
+            n = ct.sum().sum()
+            v = np.sqrt(chi2 / (n * (min(ct.shape) - 1)))
+            return round(v, 3), round(p, 4)
+        except Exception:
+            return None, None
+
+    fail_kw = fail_df[fail_df['Keyword'] != '']
+
+    # 4개 조합 계산
+    v_ic_result,   p_ic_result   = _chi2_calc(df,      'IC',       'Result')
+    v_ic_kw,       p_ic_kw       = _chi2_calc(fail_kw, 'IC',       'Keyword')
+    v_cust_result, p_cust_result = _chi2_calc(df,      'Customer', 'Result')
+    v_cust_kw,     p_cust_kw     = _chi2_calc(fail_kw, 'Customer', 'Keyword')
+
+    # 합격률 관련 유의성 판단 (IC + 고객사 중 하나라도 유의하면)
+    result_sig_parts = []
+    if p_ic_result is not None:
+        if p_ic_result < 0.05:
+            result_sig_parts.append(f"IC (p={p_ic_result:.4f}, V={v_ic_result:.3f})")
+        else:
+            result_sig_parts.append(f"IC (p={p_ic_result:.4f} → 무관)")
+    if p_cust_result is not None:
+        if p_cust_result < 0.05:
+            result_sig_parts.append(f"고객사 (p={p_cust_result:.4f}, V={v_cust_result:.3f})")
+        else:
+            result_sig_parts.append(f"고객사 (p={p_cust_result:.4f} → 무관)")
+
+    # 결함 종류 관련 유의성 판단
+    kw_sig_parts = []
+    if p_ic_kw is not None:
+        if p_ic_kw < 0.05:
+            kw_sig_parts.append(f"IC (p={p_ic_kw:.4f}, V={v_ic_kw:.3f})")
+    if p_cust_kw is not None:
+        if p_cust_kw < 0.05:
+            kw_sig_parts.append(f"고객사 (p={p_cust_kw:.4f}, V={v_cust_kw:.3f})")
+
+    result_text = " · ".join(result_sig_parts) if result_sig_parts else "분석 불가"
+    kw_text     = " · ".join(kw_sig_parts)     if kw_sig_parts     else "유의한 관계 없음"
+
+    # severity: 결함 종류와 그룹 간 관계가 강할수록 critical
+    max_v_kw = max(
+        (v for v in [v_ic_kw, v_cust_kw] if v is not None),
+        default=0
+    )
+    severity = "critical" if max_v_kw >= 0.5 else "warning" if max_v_kw >= 0.2 else "info"
+
+    finding = (
+        f"<b>합격률</b>: {result_text} — "
+        f"<b>결함 종류</b>: {kw_text} → "
+        f"그룹별로 <b>결함 패턴이 다르게 나타남</b> (합격률보다 결함 종류에 그룹 차이 집중)"
+    )
+    action = (
+        "단순 합격률 KPI가 아닌 IC·고객사별 결함 패턴 카드 도입 → "
+        "Cramér's V가 높은 조합의 결함 유형을 그룹별 맞춤 대응 전략으로 연결"
+    )
+
     render_insight_box(
-        title="합격률 vs 결함 종류 — 대조 분석",
-        finding="합격률은 IC/고객사와 <b>무관</b>(p≥0.05)이지만, 결함 종류는 <b>매우 유의</b>(p&lt;0.001, Cramér's V=0.75) → 그룹별 약점이 다른 곳에 나타남",
-        action="단순 합격률 KPI가 아닌, IC·고객사별 결함 패턴 카드 도입으로 차별화 대응 전략 수립",
-        severity="info"
+        title="합격률 vs 결함 종류 — 통계 대조 분석 (실측값 기반)",
+        finding=finding,
+        action=action,
+        severity=severity
     )
 
 
@@ -923,46 +1019,67 @@ def render_filter_analysis(df, fail_df):
             insight_failtype_impact(filtered_fail)
         st.markdown("---")
 
-    # 빌드별 추이
+    # 빌드별 추이 (Fail율 % 기준 — 인사이트와 동일 기준)
     if not build_filter:
-        st.markdown("### 📈 ③ 빌드별 Fail 추이")
-        build_trend = filtered_fail.groupby('Build_Num').size().reset_index(name='count')
-        build_trend = build_trend.sort_values('Build_Num')
+        st.markdown("### 📈 ③ 빌드별 Fail율 추이")
+        st.caption("빌드별 테스트 물량이 다를 수 있으므로 절대 건수 대신 Fail율(%)로 표시합니다.")
+        build_trend = filtered_all.groupby('Build_Num').apply(
+            lambda x: pd.Series({
+                'fail_rate': round((x['Result'] == 'FAIL').sum() / len(x) * 100, 1),
+                'total': len(x),
+                'fail_count': int((x['Result'] == 'FAIL').sum())
+            })
+        ).reset_index().sort_values('Build_Num')
         if len(build_trend) > 1:
             fig, ax = plt.subplots(figsize=(12, 4))
-            ax.plot(build_trend['Build_Num'], build_trend['count'],
+            ax.plot(build_trend['Build_Num'], build_trend['fail_rate'],
                     marker='o', markersize=8, linewidth=2, color='#1C7293')
             for _, row in build_trend.iterrows():
-                ax.annotate(f"{row['count']}", (row['Build_Num'], row['count']),
-                            textcoords="offset points", xytext=(0, 10),
-                            ha='center', fontsize=10, fontweight='bold')
+                ax.annotate(
+                    f"{row['fail_rate']}%\n(n={int(row['total'])})",
+                    (row['Build_Num'], row['fail_rate']),
+                    textcoords="offset points", xytext=(0, 12),
+                    ha='center', fontsize=9, fontweight='bold',
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
+                              edgecolor='#cccccc', alpha=0.85)
+                )
             ax.set_xlabel('빌드 번호')
-            ax.set_ylabel('Fail 건수')
+            ax.set_ylabel('Fail율 (%)')
+            ax.set_ylim(0, max(build_trend['fail_rate']) * 1.35)
             ax.grid(True, alpha=0.3)
             ax.set_xticks(build_trend['Build_Num'])
             ax.set_xticklabels(build_trend['Build_Num'], rotation=45)
             plt.tight_layout()
             st.pyplot(fig)
             plt.close(fig)
-            # 💡 인사이트 (차트 바로 아래)
+            # 💡 인사이트 (차트와 동일 기준 — Fail율)
             if filtered_all['Build_Num'].nunique() >= 2:
                 insight_build_trend(filtered_all, filtered_fail)
         st.markdown("---")
 
-    # 모델별 순위
+    # 모델별 순위 (Fail율 기준 정렬 + 건수 병기)
     if not model_filter:
-        st.markdown("### 🔥 ④ 모델별 Fail 순위 (TOP 10)")
-        model_rank = filtered_fail['Model'].value_counts().head(10).reset_index()
-        model_rank.columns = ['Model', 'Fail 건수']
+        st.markdown("### 🔥 ④ 모델별 Fail 순위 (TOP 10) — Fail율 기준")
+        st.caption("테스트 물량 차이를 보정하기 위해 Fail율(%) 기준으로 정렬합니다. 괄호 안은 절대 Fail 건수입니다.")
+        model_stats = filtered_all.groupby('Model').apply(
+            lambda x: pd.Series({
+                'fail_count': int((x['Result'] == 'FAIL').sum()),
+                'total': len(x),
+                'fail_rate': round((x['Result'] == 'FAIL').sum() / len(x) * 100, 1)
+            })
+        ).reset_index()
+        model_stats = model_stats[model_stats['fail_count'] > 0]
+        model_rank = model_stats.sort_values('fail_rate', ascending=False).head(10)
         if len(model_rank) > 0:
             fig, ax = plt.subplots(figsize=(10, max(4, len(model_rank) * 0.4)))
-            bars = ax.barh(model_rank['Model'], model_rank['Fail 건수'],
+            bars = ax.barh(model_rank['Model'], model_rank['fail_rate'],
                            color=plt.cm.YlOrRd(np.linspace(0.4, 0.9, len(model_rank))))
-            for bar, cnt in zip(bars, model_rank['Fail 건수']):
-                ax.text(bar.get_width() + max(model_rank['Fail 건수']) * 0.01,
+            for bar, rate, cnt in zip(bars, model_rank['fail_rate'], model_rank['fail_count']):
+                ax.text(bar.get_width() + max(model_rank['fail_rate']) * 0.01,
                         bar.get_y() + bar.get_height()/2,
-                        f'{cnt}건', va='center', fontsize=10, fontweight='bold')
-            ax.set_xlabel('Fail 건수')
+                        f'{rate}%  ({cnt}건)', va='center', fontsize=10, fontweight='bold')
+            ax.set_xlabel('Fail율 (%)')
+            ax.set_xlim(0, max(model_rank['fail_rate']) * 1.25)
             ax.invert_yaxis()
             plt.tight_layout()
             st.pyplot(fig)
@@ -2831,6 +2948,7 @@ def generate_ppt_report(df, fail_df, selected_month):
 
 st.title("🔍 SQA 펌웨어 분석 대시보드")
 st.caption("서강대학교 AI·SW대학원 | 생성형 AI와 파이썬 데이터 분석 | A74072 조희주")
+st.caption("설계 원칙: 단순 시각화가 아닌 **What → So What → Why → Now What** 4단계 인사이트 자동 생성 · 위험도 가중 분석 · 통계 검증 기반 의사결정 지원")
 st.markdown("---")
 
 try:
@@ -2864,13 +2982,16 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### 💡 메뉴 가이드")
 st.sidebar.markdown("""
 - **🏠 홈**  
-  사이트 전체 안내
+  사이트 전체 안내 + 설계 원칙
 - **💡 인사이트 분석**  
-  필터·차트·통계 (자동 인사이트 박스)
+  필터·차트·통계 (4단계 인사이트 자동 생성)  
+  *위험도 가중 분석 포함*
 - **🔮 알람 & 예측**  
-  과거 회귀 + 미래 예측
+  회귀 탐지 + 다음 빌드 Fail율 예측  
+  *Model×Fail_Type 단위, LOO-CV 검증*
 - **📥 검증된 보고서**  
-  업로드 + PPT 자동 생성
+  업로드 + PPT 자동 생성  
+  *핵심 인사이트 자동 삽입*
 """)
 
 
@@ -2944,6 +3065,56 @@ if menu == "🏠 홈":
         "각 메뉴 상단의 사용법 안내 박스를 통해 자세한 사용법을 볼 수 있습니다.\n\n"
         "사이드바 하단의 **'💡 메뉴 도움말 표시'** 체크박스를 해제하면 안내 박스를 숨길 수 있습니다."
     )
+
+    st.markdown("---")
+    st.markdown("## 🏗️ 대시보드 설계 원칙")
+    st.caption("각 분석 모듈이 어떤 SQA 의사결정 흐름을 따르는지 설명합니다.")
+
+    col_d1, col_d2, col_d3 = st.columns(3)
+
+    with col_d1:
+        st.markdown("""
+        #### 1️⃣ 인사이트 4단계 구조
+        모든 차트는 단순 시각화가 아니라  
+        **What → So What → Why → Now What**  
+        4단계를 강제하는 인사이트 박스와 쌍으로 구성됩니다.
+        
+        - **What**: 측정된 수치
+        - **So What**: 평균·기준 대비 맥락
+        - **Why**: 도메인 지식 기반 원인 추정
+        - **Now What**: 즉시/단주/장주 액션
+        """)
+
+    with col_d2:
+        st.markdown("""
+        #### 2️⃣ 위험도 가중 분석 설계
+        단순 건수가 아닌 **결함 심각도(Severity)**를  
+        가중한 Risk Score로 우선순위를 결정합니다.
+        
+        | Fail_Type | 심각도 |
+        |-----------|--------|
+        | no touch | 5 (CRITICAL) |
+        | touch delay | 4 (HIGH) |
+        | ghost touch | 4 (HIGH) |
+        | line broken | 3 (MID) |
+        | jitter | 2 (LOW) |
+        
+        Risk Score = 건수 × 심각도 가중치
+        """)
+
+    with col_d3:
+        st.markdown("""
+        #### 3️⃣ 통계 검증 기반 의사결정
+        경험적 판단이 아닌 **카이제곱 검정 + Cramér's V**로  
+        IC/고객사 × 합격률/결함종류 4개 조합을  
+        통계적으로 검증합니다.
+        
+        - p < 0.05: 유의한 관계
+        - Cramér's V ≥ 0.5: 강한 관계
+        - 회귀 알람: Model × Fail_Type 단위  
+          (평균에 숨겨진 개별 회귀 탐지)
+        - 예측: 2차 다항회귀 + LOO-CV + 95% CI
+        """)
 
 
 # ==============================================================================
