@@ -918,6 +918,9 @@ def render_filter_analysis(df, fail_df):
             plt.close(fig)
         with col_right:
             st.dataframe(kw_rank, use_container_width=True, hide_index=True)
+        # 💡 인사이트 (차트 바로 아래)
+        if len(filtered_fail[filtered_fail['Keyword'] != '']) > 0:
+            insight_failtype_impact(filtered_fail)
         st.markdown("---")
 
     # 빌드별 추이
@@ -941,6 +944,9 @@ def render_filter_analysis(df, fail_df):
             plt.tight_layout()
             st.pyplot(fig)
             plt.close(fig)
+            # 💡 인사이트 (차트 바로 아래)
+            if filtered_all['Build_Num'].nunique() >= 2:
+                insight_build_trend(filtered_all, filtered_fail)
         st.markdown("---")
 
     # 모델별 순위
@@ -961,9 +967,10 @@ def render_filter_analysis(df, fail_df):
             plt.tight_layout()
             st.pyplot(fig)
             plt.close(fig)
+            # 💡 인사이트 (IC별 결함 분석)
+            if filtered_all['IC'].nunique() >= 2:
+                insight_ic_failrate(filtered_all, filtered_fail)
         st.markdown("---")
-
-    # Test_Item별 순위
     if not test_item_filter:
         st.markdown("### 🧪 ⑤ Test_Item별 Fail 순위 (TOP 10)")
         item_rank = filtered_fail['Test_Item'].value_counts().head(10).reset_index()
@@ -981,9 +988,10 @@ def render_filter_analysis(df, fail_df):
             plt.tight_layout()
             st.pyplot(fig)
             plt.close(fig)
+            # 💡 인사이트 (Test_Item × Fail_Type 매트릭스)
+            if 'Keyword' in filtered_fail.columns and len(filtered_fail[filtered_fail['Keyword'] != '']) > 0:
+                insight_test_item_matrix(filtered_fail)
         st.markdown("---")
-
-    # 상세 표
     st.markdown(f"### 📋 ⑥ 상세 Fail 케이스 ({len(filtered_fail):,}건)")
     st.caption("표의 영상 링크를 클릭하면 새 탭에서 결함 영상이 재생됩니다.")
 
@@ -1008,39 +1016,15 @@ def render_filter_analysis(df, fail_df):
         }
     )
     
-    # ===== 핵심 인사이트 영역 (필터링된 데이터 기준 자동 생성) =====
-    st.markdown("---")
-    
-    # 필터 상태 표시
+    # ===== 카이제곱 대조 분석 (전체 데이터일 때만 표시 — 차트 외 별도 통계 분석) =====
     is_full = (not ic_filter and not model_filter and not build_filter 
                and not test_item_filter and not kw_filter)
     
-    if is_full:
-        st.markdown("### 💡 전체 데이터 핵심 인사이트")
-        st.caption("필터를 비운 상태 → 전체 데이터의 종합 인사이트입니다. 필터를 선택하면 해당 그룹의 인사이트가 자동 생성됩니다.")
-    else:
-        st.markdown(f"### 💡 선택 그룹 핵심 인사이트")
-        st.caption(f"현재 필터 조건의 {len(filtered_all):,}건 데이터 기준 자동 분석입니다.")
-    
-    # 필터링된 데이터로 인사이트 생성
-    if len(filtered_all) > 0 and len(filtered_fail) > 0:
-        # 1. 빌드 추세 (빌드 2개 이상일 때만)
-        if filtered_all['Build_Num'].nunique() >= 2:
-            insight_build_trend(filtered_all, filtered_fail)
-        
-        # 2. IC별 분석 (IC 2개 이상일 때만)
-        if filtered_all['IC'].nunique() >= 2:
-            insight_ic_failrate(filtered_all, filtered_fail)
-        
-        # 3. Fail_Type 영향 (Keyword 데이터 있을 때)
-        if len(filtered_fail[filtered_fail['Keyword'] != '']) > 0:
-            insight_failtype_impact(filtered_fail)
-        
-        # 4. 카이제곱 대조 분석 (전체 데이터일 때만 - 그룹별로는 의미 없음)
-        if is_full:
-            insight_chisquare(filtered_all, filtered_fail)
-    else:
-        st.info("📊 선택한 조건에 해당하는 데이터가 부족합니다. 필터를 완화해보세요.")
+    if is_full and len(filtered_all) > 0 and len(filtered_fail) > 0:
+        st.markdown("---")
+        st.markdown("### 📐 통계 검증 — 카이제곱 대조 분석")
+        st.caption("필터를 비운 전체 데이터 기준 통계 검증입니다.")
+        insight_chisquare(filtered_all, filtered_fail)
 
 
 # ==============================================================================
