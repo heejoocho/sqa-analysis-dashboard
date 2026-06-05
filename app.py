@@ -411,11 +411,7 @@ def get_action_for_keyword(keyword):
 
 
 def render_insight_box(title, what, so_what, why, business_impact=None, dev_actions=None, comparison=None, key_insight=None, severity="info"):
-    """공통 인사이트 박스 렌더링 (7단계 확장: 핵심한줄 → 수치 → 의미 → 원인 → 비즈니스 → 개발 → 비교)
-    
-    key_insight: 맨 위 강조 박스 (한 줄 결론)
-    business_impact, dev_actions, comparison: 6단계 상세 분석
-    """
+    """공통 인사이트 박스 렌더링 (들여쓰기 없이 한 줄로 HTML 작성 - streamlit 코드블록 방지)"""
     color_map = {
         "info": ("#3498db", "#EBF5FF"),
         "warning": ("#f39c12", "#FFF5E6"),
@@ -424,86 +420,27 @@ def render_insight_box(title, what, so_what, why, business_impact=None, dev_acti
     }
     border_color, bg_color = color_map.get(severity, color_map["info"])
     
-    # 핵심 인사이트 강조 영역 (맨 위)
+    # 핵심 인사이트 강조 영역
     key_section = ""
     if key_insight:
-        key_section = f"""
-        <div style="
-            background-color: {border_color};
-            color: white;
-            padding: 0.7rem 1rem;
-            border-radius: 6px;
-            margin-bottom: 0.8rem;
-            font-weight: 600;
-            font-size: 0.95rem;
-            line-height: 1.5;
-        ">
-            🎯 핵심 인사이트<br>
-            <span style="font-size: 0.9rem; font-weight: 500;">{key_insight}</span>
-        </div>
-        """
+        key_section = f'<div style="background-color:{border_color};color:white;padding:0.7rem 1rem;border-radius:6px;margin-bottom:0.8rem;font-weight:600;font-size:0.95rem;line-height:1.5;">🎯 핵심 인사이트<br><span style="font-size:0.9rem;font-weight:500;">{key_insight}</span></div>'
     
-    # 액션 섹션 (6단계 모드)
+    # 액션 섹션
     action_section = ""
     if business_impact or dev_actions or comparison:
-        action_section = f"""
-        <div style="
-            margin-top: 0.8rem;
-            padding-top: 0.8rem;
-            border-top: 1px dashed {border_color};
-        ">
-        """
+        action_section = f'<div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px dashed {border_color};">'
         if business_impact:
-            action_section += f"""
-            <div style="margin-bottom: 0.5rem;">
-                <span style="color: {border_color}; font-weight: 600;">💼 비즈니스 임팩트:</span> {business_impact}
-            </div>
-            """
+            action_section += f'<div style="margin-bottom:0.5rem;"><span style="color:{border_color};font-weight:600;">💼 비즈니스 임팩트:</span> {business_impact}</div>'
         if dev_actions:
-            actions_html = "".join([f"<li style='margin-bottom: 0.25rem;'>{a}</li>" for a in dev_actions])
-            action_section += f"""
-            <div style="margin-bottom: 0.5rem;">
-                <span style="color: {border_color}; font-weight: 600;">🛠️ 개발 액션 (우선순위순):</span>
-                <ul style="margin: 0.3rem 0 0 0.5rem; padding-left: 1.25rem;">
-                    {actions_html}
-                </ul>
-            </div>
-            """
+            actions_html = "".join([f'<li style="margin-bottom:0.25rem;">{a}</li>' for a in dev_actions])
+            action_section += f'<div style="margin-bottom:0.5rem;"><span style="color:{border_color};font-weight:600;">🛠️ 개발 액션 (우선순위순):</span><ul style="margin:0.3rem 0 0 0.5rem;padding-left:1.25rem;">{actions_html}</ul></div>'
         if comparison:
-            action_section += f"""
-            <div>
-                <span style="color: {border_color}; font-weight: 600;">🔁 비교 분석 권장:</span> {comparison}
-            </div>
-            """
+            action_section += f'<div><span style="color:{border_color};font-weight:600;">🔁 비교 분석 권장:</span> {comparison}</div>'
         action_section += "</div>"
     
-    html = f"""
-    <div style="
-        background-color: {bg_color};
-        border-left: 4px solid {border_color};
-        border-radius: 8px;
-        padding: 1rem 1.25rem;
-        margin: 1rem 0;
-        font-family: 'Pretendard Variable', sans-serif;
-    ">
-        <div style="font-weight: 700; font-size: 1.05rem; color: #1a1a1a; margin-bottom: 0.6rem;">
-            💡 {title}
-        </div>
-        {key_section}
-        <div style="font-size: 0.9rem; color: #2c3e50; line-height: 1.6;">
-            <div style="margin-bottom: 0.4rem;">
-                <span style="color: {border_color}; font-weight: 600;">📊 수치:</span> {what}
-            </div>
-            <div style="margin-bottom: 0.4rem;">
-                <span style="color: {border_color}; font-weight: 600;">🔎 의미:</span> {so_what}
-            </div>
-            <div style="margin-bottom: 0.4rem;">
-                <span style="color: {border_color}; font-weight: 600;">🔍 원인 추정:</span> {why}
-            </div>
-            {action_section}
-        </div>
-    </div>
-    """
+    # 전체 HTML (한 줄로)
+    html = f'<div style="background-color:{bg_color};border-left:4px solid {border_color};border-radius:8px;padding:1rem 1.25rem;margin:1rem 0;font-family:\'Pretendard Variable\', sans-serif;"><div style="font-weight:700;font-size:1.05rem;color:#1a1a1a;margin-bottom:0.6rem;">💡 {title}</div>{key_section}<div style="font-size:0.9rem;color:#2c3e50;line-height:1.6;"><div style="margin-bottom:0.4rem;"><span style="color:{border_color};font-weight:600;">📊 수치:</span> {what}</div><div style="margin-bottom:0.4rem;"><span style="color:{border_color};font-weight:600;">🔎 의미:</span> {so_what}</div><div style="margin-bottom:0.4rem;"><span style="color:{border_color};font-weight:600;">🔍 원인 추정:</span> {why}</div>{action_section}</div></div>'
+    
     st.markdown(html, unsafe_allow_html=True)
 
 
@@ -3106,33 +3043,11 @@ st.sidebar.markdown("""
 # 메뉴별 도움말 박스 함수
 # ==============================================================================
 def show_menu_help(title, description, tips):
-    """메뉴 상단에 사용법 안내 박스 표시 (expander 안 씀 - 아이콘 깨짐 방지)"""
+    """메뉴 상단에 사용법 안내 박스 (HTML 들여쓰기 없이 한 줄로)"""
     if show_help:
-        tips_html = "".join([f"<li style='margin-bottom: 0.35rem;'>{tip}</li>" for tip in tips])
-        st.markdown(
-            f"""
-            <div style="
-                background-color: #f5f1e8;
-                border: 1px solid #d4d1c4;
-                border-left: 4px solid #cc785c;
-                border-radius: 10px;
-                padding: 1rem 1.25rem;
-                margin-bottom: 1rem;
-                font-family: 'Pretendard Variable', sans-serif;
-            ">
-                <div style="font-weight: 700; color: #1a1a1a; margin-bottom: 0.5rem; font-size: 0.95rem;">
-                    💡 사용법 안내
-                </div>
-                <div style="color: #4a4a4a; font-size: 0.875rem; margin-bottom: 0.75rem; line-height: 1.55;">
-                    {description}
-                </div>
-                <ul style="color: #4a4a4a; font-size: 0.875rem; line-height: 1.55; margin: 0; padding-left: 1.25rem;">
-                    {tips_html}
-                </ul>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        tips_html = "".join([f'<li style="margin-bottom:0.35rem;">{tip}</li>' for tip in tips])
+        html = f'<div style="background-color:#f5f1e8;border:1px solid #d4d1c4;border-left:4px solid #cc785c;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem;font-family:\'Pretendard Variable\', sans-serif;"><div style="font-weight:700;color:#1a1a1a;margin-bottom:0.5rem;font-size:0.95rem;">💡 사용법 안내</div><div style="color:#4a4a4a;font-size:0.875rem;margin-bottom:0.75rem;line-height:1.55;">{description}</div><ul style="color:#4a4a4a;font-size:0.875rem;line-height:1.55;margin:0;padding-left:1.25rem;">{tips_html}</ul></div>'
+        st.markdown(html, unsafe_allow_html=True)
 
 
 # ==============================================================================
