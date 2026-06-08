@@ -826,47 +826,6 @@ def load_base_data():
     df['IC_Code'] = df['IC_Code'].str.zfill(2)
     df['Model_Minor'] = df['Model_Minor'].str.zfill(2)
     df['Keyword'] = df['Keyword'].fillna('')
-    # Video_Link → video_id 변환 (사이트 호환성)
-    df = ensure_video_id(df)
-    return df
-
-
-def ensure_video_id(df):
-    """
-    Video_Link 컬럼이 있고 video_id 컬럼이 없거나 비어있으면,
-    Video_Link의 파일명에서 video_id를 자동 추출/생성.
-    
-    이 함수는 원본 데이터와 업로드 데이터 모두에 적용되어,
-    사이트가 일관된 방식으로 Google Drive 링크를 생성할 수 있도록 함.
-    """
-    import hashlib
-    
-    # video_id 컬럼이 없으면 생성
-    if 'video_id' not in df.columns:
-        df['video_id'] = ''
-    
-    # FAIL인 행 중 video_id가 비어있는 행에 대해 자동 생성
-    needs_id = (
-        (df['Result'] == 'FAIL') &
-        ((df['video_id'].isna()) | (df['video_id'] == ''))
-    )
-    
-    if needs_id.any():
-        def make_id(row):
-            # Video_Link가 있으면 해시로 video_id 생성
-            link = row.get('Video_Link', '') if 'Video_Link' in row.index else ''
-            if pd.notna(link) and link != '':
-                # Video_Link의 파일명에서 안정적인 해시 생성
-                fname = str(link).split('/')[-1].replace('.mp4', '')
-                h = hashlib.md5(fname.encode()).hexdigest()
-                return f"1{h[:12]}_demo_{h[12:20]}"
-            # Video_Link도 없으면 행 정보로 생성
-            seed = f"{row.get('No', '')}_{row.get('Model', '')}_{row.get('Keyword', '')}_{row.get('Build_Num', '')}"
-            h = hashlib.md5(seed.encode()).hexdigest()
-            return f"1{h[:12]}_demo_{h[12:20]}"
-        
-        df.loc[needs_id, 'video_id'] = df.loc[needs_id].apply(make_id, axis=1)
-    
     return df
 
 
@@ -886,12 +845,10 @@ if 'data_version' not in st.session_state:
 
 
 def get_current_df():
-    """기본 데이터 + 업로드된 데이터 모두 합쳐 반환 (영상 ID 자동 보장)"""
+    """기본 데이터 + 업로드된 데이터 모두 합쳐 반환"""
     base_df = load_base_data()
     if st.session_state.uploaded_data:
-        # 업로드 데이터에도 video_id 변환 적용 (사이트 일관성)
-        uploaded_with_id = [ensure_video_id(d.copy()) for d in st.session_state.uploaded_data]
-        all_dfs = [base_df] + uploaded_with_id
+        all_dfs = [base_df] + st.session_state.uploaded_data
         return pd.concat(all_dfs, ignore_index=True)
     return base_df
 
@@ -2990,8 +2947,7 @@ def generate_ppt_report(df, fail_df, selected_month):
 # ==============================================================================
 
 st.title("🔍 SQA 펌웨어 분석 대시보드")
-st.caption("서강대학교 AI·SW대학원 | 생성형 AI와 파이썬 데이터 분석 | A74072 조희주")
-st.caption("설계 원칙: 단순 시각화가 아닌 **What → So What → Why → Now What** 4단계 인사이트 자동 생성 · 위험도 가중 분석 · 통계 검증 기반 의사결정 지원")
+st.caption("주간 펌웨어 테스트 결과 분석 및 회의 보고서 자동 생성")
 st.markdown("---")
 
 try:
@@ -3004,7 +2960,7 @@ except Exception as e:
 st.sidebar.title("📋 메뉴")
 menu = st.sidebar.radio(
     "분석 메뉴 선택",
-    ["🏠 홈", "💡 인사이트 분석", "🔮 알람 & 예측", "📥 검증된 보고서"]
+    ["🏠 홈", "💡 인사이트 분석", "🔮 알람 & 예측", "📥 데이터 & 보고서"]
 )
 
 # 메뉴별 도움말 표시 여부
@@ -3025,16 +2981,13 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### 💡 메뉴 가이드")
 st.sidebar.markdown("""
 - **🏠 홈**  
-  사이트 전체 안내 + 설계 원칙
+  사이트 개요 및 빠른 시작
 - **💡 인사이트 분석**  
-  필터·차트·통계 (4단계 인사이트 자동 생성)  
-  *위험도 가중 분석 포함*
+  필터 분석 + 월별·고객사 통계
 - **🔮 알람 & 예측**  
-  회귀 탐지 + 다음 빌드 Fail율 예측  
-  *Model×Fail_Type 단위, LOO-CV 검증*
-- **📥 검증된 보고서**  
-  업로드 + PPT 자동 생성  
-  *핵심 인사이트 자동 삽입*
+  회귀 검출 + 다음 빌드 예측
+- **📥 데이터 & 보고서**  
+  주간 데이터 업로드 + PPT 생성
 """)
 
 
@@ -3090,14 +3043,10 @@ if menu == "🏠 홈":
     
     with col_b:
         st.markdown("""
-        ### 📥 검증된 보고서
-        데이터 업로드부터 PPT 자동 생성까지.
-        - 📁 **데이터 업로드**: 엑셀 추가 → 즉시 반영
-        - 📥 **보고서 생성**: 회사 표준 PPT 자동 작성 + 핵심 인사이트 자동 삽입
-        
-        ### 📌 메뉴 구성 원칙
-        교수님 피드백을 반영해 **인사이트 중심**으로 메뉴를 재설계했습니다. 
-        단순 그래프가 아닌 의사결정에 활용 가능한 인사이트를 자동 제공합니다.
+        ### 📥 데이터 & 보고서
+        주간 데이터 업로드부터 PPT 자동 생성까지.
+        - 📁 **데이터 업로드**: 새 주간 엑셀 추가 → 즉시 반영
+        - 📥 **보고서 생성**: 회사 표준 PPT 자동 작성
         """)
     
     st.markdown("---")
@@ -3108,56 +3057,6 @@ if menu == "🏠 홈":
         "각 메뉴 상단의 사용법 안내 박스를 통해 자세한 사용법을 볼 수 있습니다.\n\n"
         "사이드바 하단의 **'💡 메뉴 도움말 표시'** 체크박스를 해제하면 안내 박스를 숨길 수 있습니다."
     )
-
-    st.markdown("---")
-    st.markdown("## 🏗️ 대시보드 설계 원칙")
-    st.caption("각 분석 모듈이 어떤 SQA 의사결정 흐름을 따르는지 설명합니다.")
-
-    col_d1, col_d2, col_d3 = st.columns(3)
-
-    with col_d1:
-        st.markdown("""
-        #### 1️⃣ 인사이트 4단계 구조
-        모든 차트는 단순 시각화가 아니라  
-        **What → So What → Why → Now What**  
-        4단계를 강제하는 인사이트 박스와 쌍으로 구성됩니다.
-        
-        - **What**: 측정된 수치
-        - **So What**: 평균·기준 대비 맥락
-        - **Why**: 도메인 지식 기반 원인 추정
-        - **Now What**: 즉시/단주/장주 액션
-        """)
-
-    with col_d2:
-        st.markdown("""
-        #### 2️⃣ 위험도 가중 분석 설계
-        단순 건수가 아닌 **결함 심각도(Severity)**를  
-        가중한 Risk Score로 우선순위를 결정합니다.
-        
-        | Fail_Type | 심각도 |
-        |-----------|--------|
-        | no touch | 5 (CRITICAL) |
-        | touch delay | 4 (HIGH) |
-        | ghost touch | 4 (HIGH) |
-        | line broken | 3 (MID) |
-        | jitter | 2 (LOW) |
-        
-        Risk Score = 건수 × 심각도 가중치
-        """)
-
-    with col_d3:
-        st.markdown("""
-        #### 3️⃣ 통계 검증 기반 의사결정
-        경험적 판단이 아닌 **카이제곱 검정 + Cramér's V**로  
-        IC/고객사 × 합격률/결함종류 4개 조합을  
-        통계적으로 검증합니다.
-        
-        - p < 0.05: 유의한 관계
-        - Cramér's V ≥ 0.5: 강한 관계
-        - 회귀 알람: Model × Fail_Type 단위  
-          (평균에 숨겨진 개별 회귀 탐지)
-        - 예측: 2차 다항회귀 + LOO-CV + 95% CI
-        """)
 
 
 # ==============================================================================
@@ -3247,11 +3146,11 @@ elif menu == "🔮 알람 & 예측":
 
 
 # ==============================================================================
-# 📥 메뉴 4: 검증된 보고서 (업로드 + 보고서)
+# 📥 메뉴 4: 데이터 & 보고서 (업로드 + 보고서)
 # ==============================================================================
-elif menu == "📥 검증된 보고서":
-    st.markdown("## 📥 검증된 보고서")
-    st.markdown("**데이터 업로드 → 자동 분석 → PPT 보고서 (핵심 인사이트 자동 삽입)**")
+elif menu == "📥 데이터 & 보고서":
+    st.markdown("## 📥 데이터 & 보고서")
+    st.markdown("**주간 테스트 데이터 업로드 → 자동 분석 → PPT 보고서 생성**")
     
     # 2개 탭
     tab1, tab2 = st.tabs([
@@ -3276,11 +3175,11 @@ elif menu == "📥 검증된 보고서":
     with tab2:
         show_menu_help(
             "📥 보고서 생성",
-            "선택한 월의 데이터로 회사 표준 SQA-SW Quality Review 보고서(PPT 10장)를 자동 생성합니다. 회의 요약 슬라이드에 핵심 인사이트가 자동 삽입됩니다.",
+            "선택한 월의 데이터로 회사 표준 SQA-SW Quality Review 보고서(PPT 10장)를 자동 생성합니다.",
             [
                 "월을 선택하면 그 달의 데이터만 분석되어 보고서가 생성됩니다",
-                "**Action Item이 도메인 dict로 자동 매칭**됩니다 (예: touch delay → 응답속도 검토)",
-                "**회의 요약 슬라이드에 💡 핵심 인사이트 자동 생성** (가장 위험한 IC, 광범위 결함, 회귀 알람)",
+                "Action Item이 도메인 dict로 자동 매칭됩니다",
+                "회의 요약 슬라이드에 핵심 분석 내용이 자동 삽입됩니다",
                 "생성된 보고서는 이력에 저장되어 언제든 다운로드 가능",
                 "체크박스로 선택해서 보고서 삭제 가능",
             ]
