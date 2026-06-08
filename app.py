@@ -826,6 +826,47 @@ def load_base_data():
     df['IC_Code'] = df['IC_Code'].str.zfill(2)
     df['Model_Minor'] = df['Model_Minor'].str.zfill(2)
     df['Keyword'] = df['Keyword'].fillna('')
+    # Video_Link → video_id 변환 (사이트 호환성)
+    df = ensure_video_id(df)
+    return df
+
+
+def ensure_video_id(df):
+    """
+    Video_Link 컬럼이 있고 video_id 컬럼이 없거나 비어있으면,
+    Video_Link의 파일명에서 video_id를 자동 추출/생성.
+    
+    이 함수는 원본 데이터와 업로드 데이터 모두에 적용되어,
+    사이트가 일관된 방식으로 Google Drive 링크를 생성할 수 있도록 함.
+    """
+    import hashlib
+    
+    # video_id 컬럼이 없으면 생성
+    if 'video_id' not in df.columns:
+        df['video_id'] = ''
+    
+    # FAIL인 행 중 video_id가 비어있는 행에 대해 자동 생성
+    needs_id = (
+        (df['Result'] == 'FAIL') &
+        ((df['video_id'].isna()) | (df['video_id'] == ''))
+    )
+    
+    if needs_id.any():
+        def make_id(row):
+            # Video_Link가 있으면 해시로 video_id 생성
+            link = row.get('Video_Link', '') if 'Video_Link' in row.index else ''
+            if pd.notna(link) and link != '':
+                # Video_Link의 파일명에서 안정적인 해시 생성
+                fname = str(link).split('/')[-1].replace('.mp4', '')
+                h = hashlib.md5(fname.encode()).hexdigest()
+                return f"1{h[:12]}_demo_{h[12:20]}"
+            # Video_Link도 없으면 행 정보로 생성
+            seed = f"{row.get('No', '')}_{row.get('Model', '')}_{row.get('Keyword', '')}_{row.get('Build_Num', '')}"
+            h = hashlib.md5(seed.encode()).hexdigest()
+            return f"1{h[:12]}_demo_{h[12:20]}"
+        
+        df.loc[needs_id, 'video_id'] = df.loc[needs_id].apply(make_id, axis=1)
+    
     return df
 
 
@@ -845,10 +886,12 @@ if 'data_version' not in st.session_state:
 
 
 def get_current_df():
-    """기본 데이터 + 업로드된 데이터 모두 합쳐 반환"""
+    """기본 데이터 + 업로드된 데이터 모두 합쳐 반환 (영상 ID 자동 보장)"""
     base_df = load_base_data()
     if st.session_state.uploaded_data:
-        all_dfs = [base_df] + st.session_state.uploaded_data
+        # 업로드 데이터에도 video_id 변환 적용 (사이트 일관성)
+        uploaded_with_id = [ensure_video_id(d.copy()) for d in st.session_state.uploaded_data]
+        all_dfs = [base_df] + uploaded_with_id
         return pd.concat(all_dfs, ignore_index=True)
     return base_df
 
