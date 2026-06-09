@@ -433,6 +433,130 @@ def render_insight_box(title, finding, action, severity="info", **kwargs):
     st.markdown(html, unsafe_allow_html=True)
 
 
+def render_video_filter_panel(df, context, key_prefix):
+    """인사이트 박스 아래 인라인 영상 필터 패널 (5개 필터 + 영상 목록)
+    
+    df: 전체 데이터프레임 (FAIL만 자동 필터링)
+    context: 인사이트의 컨텍스트 (자동 적용 기본값)
+        예: {'IC': 'GT9XS', 'Model': 'Yoga_Pro9', 'Keyword': 'touch delay'}
+    key_prefix: Streamlit 위젯 키 충돌 방지용 (인사이트마다 다른 값)
+    """
+    # FAIL만 추출 + video_id 보장
+    fail_df = df[df['Result'] == 'FAIL'].copy()
+    if 'video_id' not in fail_df.columns:
+        fail_df['video_id'] = ''
+    
+    # 컨텍스트에서 자동 적용할 기본값 추출
+    default_ic = [context['IC']] if context.get('IC') else []
+    default_model = [context['Model']] if context.get('Model') else []
+    default_build = [context['Build_Num']] if context.get('Build_Num') else []
+    default_test_item = [context['Test_Item']] if context.get('Test_Item') else []
+    default_keyword = [context['Keyword']] if context.get('Keyword') else []
+    
+    # 컨텍스트 요약 메시지
+    ctx_parts = []
+    if context.get('IC'):
+        ctx_parts.append(f"IC={context['IC']}")
+    if context.get('Model'):
+        ctx_parts.append(f"Model={context['Model']}")
+    if context.get('Keyword'):
+        ctx_parts.append(f"결함={context['Keyword']}")
+    if context.get('Test_Item'):
+        ctx_parts.append(f"시나리오={context['Test_Item']}")
+    ctx_msg = " · ".join(ctx_parts) if ctx_parts else "전체 결함"
+    
+    # 컨텍스트 기준 1차 카운트
+    ctx_filtered = fail_df.copy()
+    for col, val in [('IC', context.get('IC')), ('Model', context.get('Model')),
+                      ('Build_Num', context.get('Build_Num')),
+                      ('Test_Item', context.get('Test_Item')),
+                      ('Keyword', context.get('Keyword'))]:
+        if val:
+            ctx_filtered = ctx_filtered[ctx_filtered[col] == val]
+    
+    # Expander로 인라인 펼침
+    with st.expander(f"📁 관련 영상 목록 보기 ({ctx_msg}) — 컨텍스트 {len(ctx_filtered)}건", expanded=False):
+        st.caption("💡 인사이트 컨텍스트가 자동 적용됐어요. 필터를 추가/변경해서 영상을 좁힐 수 있어요.")
+        
+        # 5개 필터 (필터 분석 메뉴와 동일 UI)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            f_ic = st.multiselect(
+                "IC",
+                options=sorted(fail_df['IC'].unique()),
+                default=default_ic,
+                key=f"{key_prefix}_ic",
+            )
+            f_test_item = st.multiselect(
+                "Test_Item",
+                options=sorted(fail_df['Test_Item'].unique()),
+                default=default_test_item,
+                key=f"{key_prefix}_testitem",
+            )
+        with col2:
+            f_model = st.multiselect(
+                "Model",
+                options=sorted(fail_df['Model'].unique()),
+                default=default_model,
+                key=f"{key_prefix}_model",
+            )
+            f_keyword = st.multiselect(
+                "Fail_Type",
+                options=sorted([k for k in fail_df['Keyword'].unique() if k]),
+                default=default_keyword,
+                key=f"{key_prefix}_keyword",
+            )
+        with col3:
+            f_build = st.multiselect(
+                "Build_Num",
+                options=sorted(fail_df['Build_Num'].unique(), reverse=True),
+                default=default_build,
+                key=f"{key_prefix}_build",
+            )
+        
+        # 필터 적용
+        filtered = fail_df.copy()
+        if f_ic:
+            filtered = filtered[filtered['IC'].isin(f_ic)]
+        if f_model:
+            filtered = filtered[filtered['Model'].isin(f_model)]
+        if f_build:
+            filtered = filtered[filtered['Build_Num'].isin(f_build)]
+        if f_test_item:
+            filtered = filtered[filtered['Test_Item'].isin(f_test_item)]
+        if f_keyword:
+            filtered = filtered[filtered['Keyword'].isin(f_keyword)]
+        
+        # 결과 수
+        st.markdown(f"**🎬 영상 {len(filtered)}건**")
+        
+        if len(filtered) == 0:
+            st.info("선택한 조건에 해당하는 영상이 없어요. 필터를 완화해보세요.")
+            return
+        
+        # 정렬 (최신 빌드순 기본)
+        filtered = filtered.sort_values('Build_Num', ascending=False)
+        
+        # 영상 목록을 표로 표시
+        display = filtered[['Build_Num', 'IC', 'Model', 'Test_Item', 'Keyword', 'video_id']].copy()
+        display.columns = ['빌드', 'IC', '모델', 'Test_Item', 'Fail_Type', 'video_id']
+        display['영상'] = display['video_id'].apply(get_video_link)
+        display = display.drop(columns=['video_id'])
+        
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "영상": st.column_config.LinkColumn(
+                    "영상 보기",
+                    display_text="🎬 영상 열기",
+                ),
+                "빌드": st.column_config.NumberColumn("빌드", format="%d"),
+            },
+        )
+
+
 def insight_build_trend(df, fail_df):
     """빌드별 ∩ 곡선 인사이트 (한 문장 + 액션)"""
     build_summary = df.groupby('Build_Num').apply(
@@ -502,6 +626,13 @@ def insight_ic_failrate(df, fail_df):
         action=action,
         severity=severity
     )
+    
+    # 영상 필터 패널 (해당 IC + 가장 많은 결함으로 자동 필터)
+    render_video_filter_panel(
+        df=df,
+        context={'IC': max_ic, 'Keyword': top_keyword},
+        key_prefix=f"video_ic_{max_ic}_{top_keyword}",
+    )
 
 
 def insight_failtype_impact(fail_df):
@@ -568,6 +699,13 @@ def insight_failtype_impact(fail_df):
         finding=finding,
         action=action,
         severity="warning"
+    )
+    
+    # 영상 필터 패널 (위험도 가중 1위 결함으로 자동 필터)
+    render_video_filter_panel(
+        df=fail_df,
+        context={'Keyword': top_risk_kw},
+        key_prefix=f"video_failtype_{top_risk_kw}",
     )
 
 
@@ -753,6 +891,13 @@ def insight_test_item_matrix(fail_df):
         action=action,
         severity="warning"
     )
+    
+    # 영상 필터 패널 (Test_Item × Keyword 자동 필터)
+    render_video_filter_panel(
+        df=fail_df,
+        context={'Test_Item': test_item, 'Keyword': keyword},
+        key_prefix=f"video_testitem_{test_item}_{keyword}",
+    )
 
 
 def insight_regression_alert(alerts_df, latest_build, prev_build, df, fail_df):
@@ -793,6 +938,17 @@ def insight_regression_alert(alerts_df, latest_build, prev_build, df, fail_df):
         action=action,
         severity=severity
     )
+    
+    # 영상 필터 패널 (최신 빌드 + 가장 심각한 모델×결함 자동 필터)
+    render_video_filter_panel(
+        df=df,
+        context={
+            'Build_Num': int(latest_build),
+            'Model': worst_model,
+            'Keyword': worst_keyword,
+        },
+        key_prefix=f"video_regression_{latest_build}_{worst_model}",
+    )
 
 
 
@@ -826,6 +982,40 @@ def load_base_data():
     df['IC_Code'] = df['IC_Code'].str.zfill(2)
     df['Model_Minor'] = df['Model_Minor'].str.zfill(2)
     df['Keyword'] = df['Keyword'].fillna('')
+    # Video_Link → video_id 자동 변환 (사이트 호환성)
+    df = ensure_video_id(df)
+    return df
+
+
+def ensure_video_id(df):
+    """
+    Video_Link 컬럼에서 video_id를 자동 생성.
+    원본 데이터와 업로드 데이터 모두에 적용되어 사이트가 일관된 방식으로
+    Google Drive 링크를 생성할 수 있도록 함.
+    """
+    import hashlib
+    
+    if 'video_id' not in df.columns:
+        df['video_id'] = ''
+    
+    needs_id = (
+        (df['Result'] == 'FAIL') &
+        ((df['video_id'].isna()) | (df['video_id'] == ''))
+    )
+    
+    if needs_id.any():
+        def make_id(row):
+            link = row.get('Video_Link', '') if 'Video_Link' in row.index else ''
+            if pd.notna(link) and link != '':
+                fname = str(link).split('/')[-1].replace('.mp4', '')
+                h = hashlib.md5(fname.encode()).hexdigest()
+                return f"1{h[:12]}_demo_{h[12:20]}"
+            seed = f"{row.get('No', '')}_{row.get('Model', '')}_{row.get('Keyword', '')}_{row.get('Build_Num', '')}"
+            h = hashlib.md5(seed.encode()).hexdigest()
+            return f"1{h[:12]}_demo_{h[12:20]}"
+        
+        df.loc[needs_id, 'video_id'] = df.loc[needs_id].apply(make_id, axis=1)
+    
     return df
 
 
@@ -845,10 +1035,11 @@ if 'data_version' not in st.session_state:
 
 
 def get_current_df():
-    """기본 데이터 + 업로드된 데이터 모두 합쳐 반환"""
+    """기본 데이터 + 업로드된 데이터 모두 합쳐 반환 (영상 ID 자동 보장)"""
     base_df = load_base_data()
     if st.session_state.uploaded_data:
-        all_dfs = [base_df] + st.session_state.uploaded_data
+        uploaded_with_id = [ensure_video_id(d.copy()) for d in st.session_state.uploaded_data]
+        all_dfs = [base_df] + uploaded_with_id
         return pd.concat(all_dfs, ignore_index=True)
     return base_df
 
