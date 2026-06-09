@@ -592,7 +592,7 @@ def insight_build_trend(df, fail_df):
     )
 
 
-def insight_ic_failrate(df, fail_df):
+def insight_ic_failrate(df, fail_df, key_suffix=""):
     """IC별 Fail율 인사이트 (한 문장 + 액션)"""
     ic_summary = df.groupby('IC').apply(
         lambda x: (x['Result'] == 'FAIL').sum() / len(x) * 100
@@ -631,11 +631,11 @@ def insight_ic_failrate(df, fail_df):
     render_video_filter_panel(
         df=df,
         context={'IC': max_ic, 'Keyword': top_keyword},
-        key_prefix=f"video_ic_{max_ic}_{top_keyword}",
+        key_prefix=f"video_ic_{max_ic}_{top_keyword}_{key_suffix}",
     )
 
 
-def insight_failtype_impact(fail_df):
+def insight_failtype_impact(fail_df, key_suffix=""):
     """Fail_Type 영향 분석 — 위험도 가중 건수(risk score) 포함"""
     if 'Keyword' not in fail_df.columns:
         return
@@ -705,7 +705,7 @@ def insight_failtype_impact(fail_df):
     render_video_filter_panel(
         df=fail_df,
         context={'Keyword': top_risk_kw},
-        key_prefix=f"video_failtype_{top_risk_kw}",
+        key_prefix=f"video_failtype_{top_risk_kw}_{key_suffix}",
     )
 
 
@@ -865,7 +865,7 @@ def insight_customer_analysis(df, fail_df):
     )
 
 
-def insight_test_item_matrix(fail_df):
+def insight_test_item_matrix(fail_df, key_suffix=""):
     """Test_Item × Fail_Type 매트릭스 (한 문장 + 액션)"""
     if 'Test_Item' not in fail_df.columns or 'Keyword' not in fail_df.columns:
         return
@@ -896,7 +896,7 @@ def insight_test_item_matrix(fail_df):
     render_video_filter_panel(
         df=fail_df,
         context={'Test_Item': test_item, 'Keyword': keyword},
-        key_prefix=f"video_testitem_{test_item}_{keyword}",
+        key_prefix=f"video_testitem_{test_item}_{keyword}_{key_suffix}",
     )
 
 
@@ -1207,7 +1207,7 @@ def render_filter_analysis(df, fail_df):
             st.dataframe(kw_rank, use_container_width=True, hide_index=True)
         # 💡 인사이트 (차트 바로 아래)
         if len(filtered_fail[filtered_fail['Keyword'] != '']) > 0:
-            insight_failtype_impact(filtered_fail)
+            insight_failtype_impact(filtered_fail, key_suffix="filter")
         st.markdown("---")
 
     # 빌드별 추이 (Fail율 % 기준 — 인사이트와 동일 기준)
@@ -1277,7 +1277,7 @@ def render_filter_analysis(df, fail_df):
             plt.close(fig)
             # 💡 인사이트 (IC별 결함 분석)
             if filtered_all['IC'].nunique() >= 2:
-                insight_ic_failrate(filtered_all, filtered_fail)
+                insight_ic_failrate(filtered_all, filtered_fail, key_suffix="filter")
         st.markdown("---")
     if not test_item_filter:
         st.markdown("### 🧪 ⑤ Test_Item별 Fail 순위 (TOP 10)")
@@ -1298,7 +1298,7 @@ def render_filter_analysis(df, fail_df):
             plt.close(fig)
             # 💡 인사이트 (Test_Item × Fail_Type 매트릭스)
             if 'Keyword' in filtered_fail.columns and len(filtered_fail[filtered_fail['Keyword'] != '']) > 0:
-                insight_test_item_matrix(filtered_fail)
+                insight_test_item_matrix(filtered_fail, key_suffix="filter")
         st.markdown("---")
     st.markdown(f"### 📋 ⑥ 상세 Fail 케이스 ({len(filtered_fail):,}건)")
     st.caption("표의 영상 링크를 클릭하면 새 탭에서 결함 영상이 재생됩니다.")
@@ -1428,7 +1428,7 @@ def render_full_insights(df, fail_df):
     plt.close(fig2)
     
     # 💡 인사이트
-    insight_ic_failrate(df, fail_df)
+    insight_ic_failrate(df, fail_df, key_suffix="stats")
     
     st.markdown("---")
 
@@ -1548,7 +1548,7 @@ def render_full_insights(df, fail_df):
         st.dataframe(bubble_df, use_container_width=True, hide_index=True)
         
         # 💡 인사이트
-        insight_failtype_impact(fail_df)
+        insight_failtype_impact(fail_df, key_suffix="stats")
 
     st.markdown("---")
 
@@ -2136,7 +2136,7 @@ def render_full_statistics(df, fail_df):
         plt.close(fig)
         
         # 💡 인사이트 (단순 안내 → 의사결정용)
-        insight_test_item_matrix(fail_df)
+        insight_test_item_matrix(fail_df, key_suffix="testitem")
     
     st.markdown("---")
     
