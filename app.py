@@ -2716,10 +2716,9 @@ def generate_ppt_report(df, fail_df, selected_month):
         "3.   월간 TEST 결과 요약 (SQA)",
         "4.   IC × 빌드별 상세",
         "5.   Fail 항목 Review",
-        "6.   통계 검증 결과 (Chi-Square Analysis)",
+        "6.   Action Item Review (SW)",
         "7.   회귀 알람 (NEW / WORSE)",
-        "8.   Action Item Review (SW)",
-        "9.   회의 요약 및 내부 공유",
+        "8.   회의 요약 및 내부 공유",
     ]
     y_pos = 1.8
     for item in items:
@@ -2758,10 +2757,28 @@ def generate_ppt_report(df, fail_df, selected_month):
         find1_color = RGBColor(0x99, 0x99, 0x99)
         find1_desc = "빌드 1개 — 추세 분석 불가"
     
-    # 발견 2: 통계 검증 (카이제곱) - 시연에서 강조한 핵심 발견
-    find2_status = "📊 통계 검증"
-    find2_color = RGBColor(0xcc, 0x78, 0x5c)
-    find2_desc = "합격률은 IC·고객사와 무관(p≥0.05), 결함 종류는 매우 유의(p<0.001, V=0.75)"
+    # 발견 2: 위험도 가중 분석 (Risk Score) - 분석가 시점의 우선순위
+    find2_status = "⚠️ 우선순위"
+    find2_color = RGBColor(0xe6, 0x7e, 0x22)
+    
+    # 위험도 가중 계산 (간단 버전)
+    severity_map = {
+        'no touch': 5, 'touch delay': 4, 'ghost touch': 4,
+        'line broken': 3, '2 point로 인식': 3, 'edge 과밀착': 2,
+        'jitter': 2,
+    }
+    if 'Keyword' in fail_df.columns and len(fail_df) > 0:
+        kw_counts_risk = fail_df['Keyword'].value_counts()
+        risk_scores = {kw: cnt * severity_map.get(kw, 1) for kw, cnt in kw_counts_risk.items() if kw}
+        if risk_scores:
+            top_risk_kw = max(risk_scores, key=risk_scores.get)
+            top_risk_score = risk_scores[top_risk_kw]
+            top_risk_count = kw_counts_risk[top_risk_kw]
+            find2_desc = f"위험도 1위: {top_risk_kw} ({top_risk_count}건 × 심각도 = {top_risk_score}점) → 빈도 아닌 가중치 기준 최우선 처리"
+        else:
+            find2_desc = "결함 데이터 없음 — 위험도 분석 불가"
+    else:
+        find2_desc = "결함 데이터 없음 — 위험도 분석 불가"
     
     # 발견 3: 회귀 알람
     if len(df['Build_Num'].unique()) >= 2:
@@ -2793,7 +2810,7 @@ def generate_ppt_report(df, fail_df, selected_month):
     # 카드 그리기
     findings = [
         ("발견 1", "빌드별 품질 추세", find1_status, find1_color, find1_desc),
-        ("발견 2", "합격률 vs 결함 종류 — 통계 검증", find2_status, find2_color, find2_desc),
+        ("발견 2", "위험도 가중 분석 — 시급 결함 우선순위", find2_status, find2_color, find2_desc),
         ("발견 3", "회귀 결함 자동 검출", find3_status, find3_color, find3_desc),
     ]
     
@@ -2888,7 +2905,7 @@ def generate_ppt_report(df, fail_df, selected_month):
         ("Fail 건수", f"{fail_n:,}건 ({fail_rate:.1f}%)", "분석 대상 결함", RGBColor(0xe7, 0x4c, 0x3c)),
         ("분류 완료율", f"{classification_rate:.1f}%", cls_status, cls_color),
         ("중복 검증", "3단계 통과", "✅ 파일·No·행 단위", RGBColor(0x27, 0xae, 0x60)),
-        ("통계 검증", "Chi-Square + Cramér's V", "✅ 동적 계산 (재현 가능)", RGBColor(0x27, 0xae, 0x60)),
+        ("위험도 가중", "Risk Score 자동 계산", "✅ 건수 × 심각도 = 우선순위", RGBColor(0x27, 0xae, 0x60)),
     ]
     
     y_metric = 1.85
@@ -3059,97 +3076,9 @@ def generate_ppt_report(df, fail_df, selected_month):
         add_text(s6, "이번 달 Fail 케이스가 없습니다. ✅", 0.4, 3, 10, 0.4,
                  size=16, bold=True, color=RPT_MID)
     
-    # ===== Slide 7 (NEW): 통계 검증 결과 — 분석가 표준 ⭐ =====
-    s_stats = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s_stats, 8, "통계 검증 결과 — Chi-Square Analysis")
-    
-    # 통계 검증 메시지
-    add_text(s_stats, "📊 카이제곱 독립성 검정 — 합격률 vs 결함 종류", 0.4, 1.4, 11, 0.4,
-             size=14, bold=True, color=RPT_TITLE)
-    
-    # 검증 결과 카드 (좌측: 합격률, 우측: 결함 종류)
-    # 좌측 — 합격률 (무관)
-    left_bg = s_stats.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
-                                       Inches(0.4), Inches(2.0), Inches(6.0), Inches(2.8))
-    left_bg.fill.solid()
-    left_bg.fill.fore_color.rgb = RGBColor(0xfa, 0xf9, 0xf5)
-    left_bg.line.color.rgb = RGBColor(0xe3, 0xe1, 0xda)
-    
-    # 좌측 색깔 바 (회색 — 무관)
-    left_bar = s_stats.shapes.add_shape(MSO_SHAPE.RECTANGLE,
-                                        Inches(0.4), Inches(2.0), Inches(0.15), Inches(2.8))
-    left_bar.fill.solid()
-    left_bar.fill.fore_color.rgb = RGBColor(0x99, 0x99, 0x99)
-    left_bar.line.fill.background()
-    
-    add_text(s_stats, "합격률 (PASS / FAIL)", 0.75, 2.15, 5.5, 0.35,
-             size=14, bold=True, color=RGBColor(0x1a, 0x1a, 0x1a))
-    add_text(s_stats, "IC · 고객사와의 관계", 0.75, 2.5, 5.5, 0.3,
-             size=10, color=RGBColor(0x99, 0x99, 0x99))
-    add_text(s_stats, "p ≥ 0.05", 0.75, 2.95, 5.5, 0.6,
-             size=32, bold=True, color=RGBColor(0x99, 0x99, 0x99))
-    add_text(s_stats, "통계적 무관", 0.75, 3.7, 5.5, 0.4,
-             size=14, bold=True, color=RGBColor(0x99, 0x99, 0x99))
-    add_text(s_stats, "어떤 IC를 쓰든 합격률 자체는 비슷함", 0.75, 4.1, 5.5, 0.4,
-             size=11, color=RGBColor(0x5a, 0x5a, 0x5a))
-    add_text(s_stats, "→ 기존 SQA의 합격률 단일 KPI는 한계 있음", 0.75, 4.4, 5.5, 0.35,
-             size=10, italic=False, color=RGBColor(0x99, 0x99, 0x99))
-    
-    # 우측 — 결함 종류 (강한 연관)
-    right_bg = s_stats.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
-                                        Inches(6.7), Inches(2.0), Inches(6.0), Inches(2.8))
-    right_bg.fill.solid()
-    right_bg.fill.fore_color.rgb = RGBColor(0xff, 0xeb, 0xee)
-    right_bg.line.color.rgb = RGBColor(0xe7, 0x4c, 0x3c)
-    
-    # 우측 색깔 바 (빨강 — 강한 연관)
-    right_bar = s_stats.shapes.add_shape(MSO_SHAPE.RECTANGLE,
-                                         Inches(6.7), Inches(2.0), Inches(0.15), Inches(2.8))
-    right_bar.fill.solid()
-    right_bar.fill.fore_color.rgb = RGBColor(0xe7, 0x4c, 0x3c)
-    right_bar.line.fill.background()
-    
-    add_text(s_stats, "결함 종류 (Keyword)", 7.05, 2.15, 5.5, 0.35,
-             size=14, bold=True, color=RGBColor(0x1a, 0x1a, 0x1a))
-    add_text(s_stats, "IC · 고객사와의 관계", 7.05, 2.5, 5.5, 0.3,
-             size=10, color=RGBColor(0x99, 0x99, 0x99))
-    add_text(s_stats, "p < 0.001", 7.05, 2.95, 5.5, 0.6,
-             size=32, bold=True, color=RGBColor(0xe7, 0x4c, 0x3c))
-    add_text(s_stats, "강한 연관성 (V = 0.75)", 7.05, 3.7, 5.5, 0.4,
-             size=14, bold=True, color=RGBColor(0xe7, 0x4c, 0x3c))
-    add_text(s_stats, "그룹마다 어떤 결함이 나오는지 다름", 7.05, 4.1, 5.5, 0.4,
-             size=11, color=RGBColor(0x5a, 0x5a, 0x5a))
-    add_text(s_stats, "→ 그룹별 결함 패턴 KPI 전환 필요", 7.05, 4.4, 5.5, 0.35,
-             size=10, color=RGBColor(0xe7, 0x4c, 0x3c))
-    
-    # 하단 — 결론 박스
-    conclusion_bg = s_stats.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
-                                             Inches(0.4), Inches(5.1), Inches(12.3), Inches(1.7))
-    conclusion_bg.fill.solid()
-    conclusion_bg.fill.fore_color.rgb = RGBColor(0xff, 0xf3, 0xe0)
-    conclusion_bg.line.color.rgb = RGBColor(0xcc, 0x78, 0x5c)
-    
-    add_text(s_stats, "💡 분석가 결론", 0.7, 5.25, 5, 0.4,
-             size=13, bold=True, color=RGBColor(0xcc, 0x78, 0x5c))
-    add_text(s_stats,
-             "합격률은 비슷한데, 막상 Fail이 나면 어떤 종류의 결함이 나는지는 그룹마다 완전히 다름.",
-             0.7, 5.65, 12, 0.4,
-             size=12, color=RGBColor(0x1a, 0x1a, 0x1a))
-    add_text(s_stats,
-             "→ 단순 합격률 KPI가 아닌, IC · 고객사별 결함 패턴 카드로 차별화 대응 전략 필요.",
-             0.7, 6.05, 12, 0.4,
-             size=12, bold=True, color=RGBColor(0x1a, 0x1a, 0x1a))
-    add_text(s_stats,
-             "✅ 카이제곱 검정은 매 분석 시점마다 동적으로 계산 (재현 가능)",
-             0.7, 6.45, 12, 0.4,
-             size=10, italic=True, color=RGBColor(0x99, 0x99, 0x99))
-    
-    # ===== Slide 8: 회귀 알람 (페이지 번호 8) =====
-    # (다음 슬라이드는 회귀 알람으로 이어짐 — 페이지 번호만 변경)
-    
-    # ===== Slide 9: Action Item (페이지 맞춤) ⭐ =====
+    # ===== Slide 7: Action Item (페이지 맞춤) ⭐ =====
     s7 = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s7, 10, "Action Item Review (자동 생성)")
+    add_header(s7, 8, "Action Item Review (자동 생성)")
     add_text(s7, "📌 도메인 dict 기반 Action Item 자동 매칭", 0.4, 1.4, 10, 0.4,
              size=14, bold=True, color=RPT_TITLE)
     
@@ -3250,7 +3179,7 @@ def generate_ppt_report(df, fail_df, selected_month):
     
     # ===== Slide 9: 회의 요약 + 핵심 인사이트 =====
     s9 = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s9, 11, "회의 요약 및 핵심 인사이트")
+    add_header(s9, 10, "회의 요약 및 핵심 인사이트")
     
     # 인사이트 자동 생성 (분석가 시선)
     auto_insight_lines = []
