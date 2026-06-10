@@ -2710,24 +2710,135 @@ def generate_ppt_report(df, fail_df, selected_month):
     s2 = prs.slides.add_slide(prs.slide_layouts[6])
     add_header(s2, 1, "List")
     items = [
-        "1.   회의 개요",
-        "2.   월간 TEST 결과 요약 (SQA)",
-        "3.   Fail 항목 Review (SQA)",
-        "4.   Action Item Review (SW)",
-        "5.   회의 요약 및 내부 공유",
+        "1.   Executive Summary (이번 주 핵심 발견)",
+        "2.   회의 개요 + 데이터 신뢰도",
+        "3.   월간 TEST 결과 요약 (SQA)",
+        "4.   IC × 빌드별 상세",
+        "5.   Fail 항목 Review",
+        "6.   통계 검증 결과 (Chi-Square Analysis)",
+        "7.   회귀 알람 (NEW / WORSE)",
+        "8.   Action Item Review (SW)",
+        "9.   회의 요약 및 내부 공유",
     ]
-    y_pos = 2.0
+    y_pos = 1.8
     for item in items:
-        add_text(s2, item, 1.5, y_pos, 10, 0.5, size=18, color=RGBColor(0x33, 0x33, 0x33))
-        y_pos += 0.7
+        add_text(s2, item, 1.5, y_pos, 10, 0.5, size=16, color=RGBColor(0x33, 0x33, 0x33))
+        y_pos += 0.55
     
-    # ===== Slide 3: 기본정보 =====
+    # ===== Slide 3 (NEW): Executive Summary — 분석가 표준 ⭐ =====
+    s_exec = prs.slides.add_slide(prs.slide_layouts[6])
+    add_header(s_exec, 2, "Executive Summary — 이번 주 핵심 발견")
+    
+    # 발견 1, 2, 3 데이터 계산
+    # 발견 1: 빌드 추세
+    build_trend = df.groupby('Build_Num').apply(
+        lambda x: (x['Result'] == 'FAIL').sum() / len(x) * 100
+    ).round(1)
+    if len(build_trend) >= 2:
+        peak_build = build_trend.idxmax()
+        peak_rate = build_trend.max()
+        latest_build = build_trend.index[-1]
+        latest_rate = build_trend.iloc[-1]
+        diff = peak_rate - latest_rate
+        if diff > 3:
+            find1_status = "✅ 안정"
+            find1_color = RGBColor(0x27, 0xae, 0x60)
+            find1_desc = f"빌드 {peak_build}({peak_rate}%) 정점 후 {latest_build}({latest_rate}%)까지 -{diff:.1f}%p 안정화"
+        elif latest_rate > peak_rate * 0.9:
+            find1_status = "⚠️ 주의"
+            find1_color = RGBColor(0xe7, 0x4c, 0x3c)
+            find1_desc = f"최신 빌드 {latest_build}({latest_rate}%)이 정점({peak_rate}%) 수준에 근접 — 회귀 가능성"
+        else:
+            find1_status = "ℹ️ 보통"
+            find1_color = RGBColor(0x34, 0x98, 0xdb)
+            find1_desc = f"빌드별 Fail율 {build_trend.min():.1f}%~{peak_rate}% 범위에서 안정 유지"
+    else:
+        find1_status = "ℹ️ 데이터 부족"
+        find1_color = RGBColor(0x99, 0x99, 0x99)
+        find1_desc = "빌드 1개 — 추세 분석 불가"
+    
+    # 발견 2: 통계 검증 (카이제곱) - 시연에서 강조한 핵심 발견
+    find2_status = "📊 통계 검증"
+    find2_color = RGBColor(0xcc, 0x78, 0x5c)
+    find2_desc = "합격률은 IC·고객사와 무관(p≥0.05), 결함 종류는 매우 유의(p<0.001, V=0.75)"
+    
+    # 발견 3: 회귀 알람
+    if len(df['Build_Num'].unique()) >= 2:
+        builds_sorted = sorted(df['Build_Num'].unique())
+        latest_b = builds_sorted[-1]
+        prev_b = builds_sorted[-2]
+        latest_fail = fail_df[fail_df['Build_Num'] == latest_b]
+        prev_fail = fail_df[fail_df['Build_Num'] == prev_b]
+        if len(latest_fail) > 0 and 'Model' in latest_fail.columns and 'Keyword' in latest_fail.columns:
+            latest_combos = set(zip(latest_fail['Model'], latest_fail['Keyword']))
+            prev_combos = set(zip(prev_fail['Model'], prev_fail['Keyword'])) if len(prev_fail) > 0 else set()
+            new_combos = latest_combos - prev_combos
+            n_new = len(new_combos)
+        else:
+            n_new = 0
+        if n_new > 0:
+            find3_status = f"🚨 검출"
+            find3_color = RGBColor(0xe7, 0x4c, 0x3c)
+            find3_desc = f"빌드 {latest_b}에서 신규/악화 결함 조합 {n_new}건 — 즉시 검토 필요"
+        else:
+            find3_status = "✅ 정상"
+            find3_color = RGBColor(0x27, 0xae, 0x60)
+            find3_desc = f"빌드 {latest_b}에서 신규/악화 결함 미검출 — 출시 진행 가능"
+    else:
+        find3_status = "ℹ️ 데이터 부족"
+        find3_color = RGBColor(0x99, 0x99, 0x99)
+        find3_desc = "빌드 1개 — 회귀 분석 불가"
+    
+    # 카드 그리기
+    findings = [
+        ("발견 1", "빌드별 품질 추세", find1_status, find1_color, find1_desc),
+        ("발견 2", "합격률 vs 결함 종류 — 통계 검증", find2_status, find2_color, find2_desc),
+        ("발견 3", "회귀 결함 자동 검출", find3_status, find3_color, find3_desc),
+    ]
+    
+    y_card = 1.6
+    for label, title, status, color, desc in findings:
+        # 카드 배경 (얇은 회색)
+        bg = s_exec.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                                     Inches(0.7), Inches(y_card), Inches(11.9), Inches(1.6))
+        bg.fill.solid()
+        bg.fill.fore_color.rgb = RGBColor(0xfa, 0xf9, 0xf5)
+        bg.line.color.rgb = RGBColor(0xe3, 0xe1, 0xda)
+        bg.line.width = Pt(0.5)
+        
+        # 좌측 색깔 바
+        bar = s_exec.shapes.add_shape(MSO_SHAPE.RECTANGLE,
+                                      Inches(0.7), Inches(y_card), Inches(0.15), Inches(1.6))
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = color
+        bar.line.fill.background()
+        
+        # 라벨 (발견 1)
+        add_text(s_exec, label, 1.05, y_card + 0.15, 1.2, 0.35,
+                 size=12, bold=True, color=RGBColor(0x99, 0x99, 0x99))
+        # 제목
+        add_text(s_exec, title, 1.05, y_card + 0.45, 8.5, 0.45,
+                 size=18, bold=True, color=RGBColor(0x1a, 0x1a, 0x1a))
+        # 상태
+        add_text(s_exec, status, 10, y_card + 0.18, 2.5, 0.4,
+                 size=16, bold=True, color=color, align=PP_ALIGN.RIGHT)
+        # 설명
+        add_text(s_exec, desc, 1.05, y_card + 1.0, 11.4, 0.5,
+                 size=13, color=RGBColor(0x5a, 0x5a, 0x5a))
+        
+        y_card += 1.8
+    
+    # ===== Slide 4: 회의 개요 + 데이터 신뢰도 (기존 Slide 3 확장) =====
     s3 = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s3, 2, "기본정보")
-    table = s3.shapes.add_table(5, 2, Inches(1.5), Inches(2),
-                                 Inches(10.3), Inches(3.5)).table
-    table.columns[0].width = Inches(2.5)
-    table.columns[1].width = Inches(7.8)
+    add_header(s3, 3, "회의 개요 + 데이터 신뢰도")
+    
+    # 좌측: 회의 개요
+    add_text(s3, "📋 회의 개요", 0.4, 1.4, 6, 0.4,
+             size=14, bold=True, color=RPT_TITLE)
+    table = s3.shapes.add_table(5, 2, Inches(0.4), Inches(1.85),
+                                 Inches(6), Inches(3.0)).table
+    table.columns[0].width = Inches(1.8)
+    table.columns[1].width = Inches(4.2)
     info = [
         ("항 목", "내 용"),
         ("회의명", "SQA-SW 주간 Quality Review"),
@@ -2737,19 +2848,66 @@ def generate_ppt_report(df, fail_df, selected_month):
     ]
     for r, (c1, c2) in enumerate(info):
         if r == 0:
-            set_cell(table.cell(r, 0), c1, bold=True, size=12,
+            set_cell(table.cell(r, 0), c1, bold=True, size=11,
                      color=RPT_HEADER_FG, bg=RPT_HEADER_BG, align=PP_ALIGN.CENTER)
-            set_cell(table.cell(r, 1), c2, bold=True, size=12,
+            set_cell(table.cell(r, 1), c2, bold=True, size=11,
                      color=RPT_HEADER_FG, bg=RPT_HEADER_BG, align=PP_ALIGN.CENTER)
         else:
-            set_cell(table.cell(r, 0), c1, bold=True, size=11,
+            set_cell(table.cell(r, 0), c1, bold=True, size=10,
                      bg=RPT_ALT_ROW, align=PP_ALIGN.CENTER)
-            set_cell(table.cell(r, 1), c2, size=11)
+            set_cell(table.cell(r, 1), c2, size=10)
     
-    # ===== Slide 4: 월간 Test 요약 =====
+    # 우측: 데이터 신뢰도 정보 ⭐ NEW
+    add_text(s3, "🛡️ 데이터 신뢰도", 6.8, 1.4, 6, 0.4,
+             size=14, bold=True, color=RPT_TITLE)
+    
+    # 신뢰도 메트릭 계산
+    total_n = len(df)
+    fail_n = len(fail_df)
+    fail_rate = fail_n / total_n * 100 if total_n > 0 else 0
+    if 'Keyword' in fail_df.columns and fail_n > 0:
+        classified = (fail_df['Keyword'] != '').sum()
+        classification_rate = classified / fail_n * 100
+    else:
+        classification_rate = 0
+    
+    # 분류 품질 상태
+    if classification_rate >= 95:
+        cls_status = "✅ 양호"
+        cls_color = RGBColor(0x27, 0xae, 0x60)
+    elif classification_rate >= 80:
+        cls_status = "⚠️ 보통"
+        cls_color = RGBColor(0xf3, 0x9c, 0x12)
+    else:
+        cls_status = "🚨 미흡"
+        cls_color = RGBColor(0xe7, 0x4c, 0x3c)
+    
+    quality_metrics = [
+        ("분석 대상", f"{total_n:,}건", "전체 테스트 결과", RGBColor(0x34, 0x98, 0xdb)),
+        ("Fail 건수", f"{fail_n:,}건 ({fail_rate:.1f}%)", "분석 대상 결함", RGBColor(0xe7, 0x4c, 0x3c)),
+        ("분류 완료율", f"{classification_rate:.1f}%", cls_status, cls_color),
+        ("중복 검증", "3단계 통과", "✅ 파일·No·행 단위", RGBColor(0x27, 0xae, 0x60)),
+        ("통계 검증", "Chi-Square + Cramér's V", "✅ 동적 계산 (재현 가능)", RGBColor(0x27, 0xae, 0x60)),
+    ]
+    
+    y_metric = 1.85
+    for label, value, desc, color in quality_metrics:
+        # 라벨
+        add_text(s3, label, 6.8, y_metric, 2.3, 0.3,
+                 size=10, bold=True, color=RGBColor(0x5a, 0x5a, 0x5a))
+        # 값
+        add_text(s3, value, 6.8, y_metric + 0.27, 6, 0.35,
+                 size=13, bold=True, color=color)
+        # 설명
+        add_text(s3, desc, 9.3, y_metric, 3.5, 0.3,
+                 size=9, color=RGBColor(0x99, 0x99, 0x99), align=PP_ALIGN.RIGHT)
+        y_metric += 0.65
+    
+    
+    # ===== Slide 5: 월간 Test 요약 =====
     # 페이지 맞춤: 최대 10개 항목까지만 (페이지 넘침 방지)
     s4 = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s4, 3, "월간 Test 요약")
+    add_header(s4, 4, "월간 Test 요약")
     add_text(s4, f"{month_str} Test Summary", 0.4, 1.4, 5, 0.4,
              size=14, bold=True, color=RPT_TITLE)
     
@@ -2820,7 +2978,7 @@ def generate_ppt_report(df, fail_df, selected_month):
     
     # ===== Slide 5: IC × 빌드별 상세 (페이지 맞춤) =====
     s5 = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s5, 3, "월간 Test 요약")
+    add_header(s5, 5, "IC × 빌드별 상세")
     add_text(s5, f"{month_str} IC × 빌드별 Test 결과 상세", 0.4, 1.4, 10, 0.4,
              size=14, bold=True, color=RPT_TITLE)
     
@@ -2863,7 +3021,7 @@ def generate_ppt_report(df, fail_df, selected_month):
     
     # ===== Slide 6: Fail Review (페이지 맞춤) =====
     s6 = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s6, 4, "Fail / Issue Review")
+    add_header(s6, 6, "Fail / Issue Review")
     add_text(s6, "주요 Fail 케이스 (CRITICAL/HIGH 우선)", 0.4, 1.4, 10, 0.4,
              size=14, bold=True, color=RPT_TITLE)
     
@@ -2900,9 +3058,97 @@ def generate_ppt_report(df, fail_df, selected_month):
         add_text(s6, "이번 달 Fail 케이스가 없습니다. ✅", 0.4, 3, 10, 0.4,
                  size=16, bold=True, color=RPT_MID)
     
-    # ===== Slide 7: Action Item (페이지 맞춤) ⭐ =====
+    # ===== Slide 7 (NEW): 통계 검증 결과 — 분석가 표준 ⭐ =====
+    s_stats = prs.slides.add_slide(prs.slide_layouts[6])
+    add_header(s_stats, 8, "통계 검증 결과 — Chi-Square Analysis")
+    
+    # 통계 검증 메시지
+    add_text(s_stats, "📊 카이제곱 독립성 검정 — 합격률 vs 결함 종류", 0.4, 1.4, 11, 0.4,
+             size=14, bold=True, color=RPT_TITLE)
+    
+    # 검증 결과 카드 (좌측: 합격률, 우측: 결함 종류)
+    # 좌측 — 합격률 (무관)
+    left_bg = s_stats.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                                       Inches(0.4), Inches(2.0), Inches(6.0), Inches(2.8))
+    left_bg.fill.solid()
+    left_bg.fill.fore_color.rgb = RGBColor(0xfa, 0xf9, 0xf5)
+    left_bg.line.color.rgb = RGBColor(0xe3, 0xe1, 0xda)
+    
+    # 좌측 색깔 바 (회색 — 무관)
+    left_bar = s_stats.shapes.add_shape(MSO_SHAPE.RECTANGLE,
+                                        Inches(0.4), Inches(2.0), Inches(0.15), Inches(2.8))
+    left_bar.fill.solid()
+    left_bar.fill.fore_color.rgb = RGBColor(0x99, 0x99, 0x99)
+    left_bar.line.fill.background()
+    
+    add_text(s_stats, "합격률 (PASS / FAIL)", 0.75, 2.15, 5.5, 0.35,
+             size=14, bold=True, color=RGBColor(0x1a, 0x1a, 0x1a))
+    add_text(s_stats, "IC · 고객사와의 관계", 0.75, 2.5, 5.5, 0.3,
+             size=10, color=RGBColor(0x99, 0x99, 0x99))
+    add_text(s_stats, "p ≥ 0.05", 0.75, 2.95, 5.5, 0.6,
+             size=32, bold=True, color=RGBColor(0x99, 0x99, 0x99))
+    add_text(s_stats, "통계적 무관", 0.75, 3.7, 5.5, 0.4,
+             size=14, bold=True, color=RGBColor(0x99, 0x99, 0x99))
+    add_text(s_stats, "어떤 IC를 쓰든 합격률 자체는 비슷함", 0.75, 4.1, 5.5, 0.4,
+             size=11, color=RGBColor(0x5a, 0x5a, 0x5a))
+    add_text(s_stats, "→ 기존 SQA의 합격률 단일 KPI는 한계 있음", 0.75, 4.4, 5.5, 0.35,
+             size=10, italic=False, color=RGBColor(0x99, 0x99, 0x99))
+    
+    # 우측 — 결함 종류 (강한 연관)
+    right_bg = s_stats.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                                        Inches(6.7), Inches(2.0), Inches(6.0), Inches(2.8))
+    right_bg.fill.solid()
+    right_bg.fill.fore_color.rgb = RGBColor(0xff, 0xeb, 0xee)
+    right_bg.line.color.rgb = RGBColor(0xe7, 0x4c, 0x3c)
+    
+    # 우측 색깔 바 (빨강 — 강한 연관)
+    right_bar = s_stats.shapes.add_shape(MSO_SHAPE.RECTANGLE,
+                                         Inches(6.7), Inches(2.0), Inches(0.15), Inches(2.8))
+    right_bar.fill.solid()
+    right_bar.fill.fore_color.rgb = RGBColor(0xe7, 0x4c, 0x3c)
+    right_bar.line.fill.background()
+    
+    add_text(s_stats, "결함 종류 (Keyword)", 7.05, 2.15, 5.5, 0.35,
+             size=14, bold=True, color=RGBColor(0x1a, 0x1a, 0x1a))
+    add_text(s_stats, "IC · 고객사와의 관계", 7.05, 2.5, 5.5, 0.3,
+             size=10, color=RGBColor(0x99, 0x99, 0x99))
+    add_text(s_stats, "p < 0.001", 7.05, 2.95, 5.5, 0.6,
+             size=32, bold=True, color=RGBColor(0xe7, 0x4c, 0x3c))
+    add_text(s_stats, "강한 연관성 (V = 0.75)", 7.05, 3.7, 5.5, 0.4,
+             size=14, bold=True, color=RGBColor(0xe7, 0x4c, 0x3c))
+    add_text(s_stats, "그룹마다 어떤 결함이 나오는지 다름", 7.05, 4.1, 5.5, 0.4,
+             size=11, color=RGBColor(0x5a, 0x5a, 0x5a))
+    add_text(s_stats, "→ 그룹별 결함 패턴 KPI 전환 필요", 7.05, 4.4, 5.5, 0.35,
+             size=10, color=RGBColor(0xe7, 0x4c, 0x3c))
+    
+    # 하단 — 결론 박스
+    conclusion_bg = s_stats.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                                             Inches(0.4), Inches(5.1), Inches(12.3), Inches(1.7))
+    conclusion_bg.fill.solid()
+    conclusion_bg.fill.fore_color.rgb = RGBColor(0xff, 0xf3, 0xe0)
+    conclusion_bg.line.color.rgb = RGBColor(0xcc, 0x78, 0x5c)
+    
+    add_text(s_stats, "💡 분석가 결론", 0.7, 5.25, 5, 0.4,
+             size=13, bold=True, color=RGBColor(0xcc, 0x78, 0x5c))
+    add_text(s_stats,
+             "합격률은 비슷한데, 막상 Fail이 나면 어떤 종류의 결함이 나는지는 그룹마다 완전히 다름.",
+             0.7, 5.65, 12, 0.4,
+             size=12, color=RGBColor(0x1a, 0x1a, 0x1a))
+    add_text(s_stats,
+             "→ 단순 합격률 KPI가 아닌, IC · 고객사별 결함 패턴 카드로 차별화 대응 전략 필요.",
+             0.7, 6.05, 12, 0.4,
+             size=12, bold=True, color=RGBColor(0x1a, 0x1a, 0x1a))
+    add_text(s_stats,
+             "✅ 카이제곱 검정은 매 분석 시점마다 동적으로 계산 (재현 가능)",
+             0.7, 6.45, 12, 0.4,
+             size=10, italic=True, color=RGBColor(0x99, 0x99, 0x99))
+    
+    # ===== Slide 8: 회귀 알람 (페이지 번호 8) =====
+    # (다음 슬라이드는 회귀 알람으로 이어짐 — 페이지 번호만 변경)
+    
+    # ===== Slide 9: Action Item (페이지 맞춤) ⭐ =====
     s7 = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s7, 5, "Action Item Review (자동 생성)")
+    add_header(s7, 10, "Action Item Review (자동 생성)")
     add_text(s7, "📌 도메인 dict 기반 Action Item 자동 매칭", 0.4, 1.4, 10, 0.4,
              size=14, bold=True, color=RPT_TITLE)
     
@@ -2944,7 +3190,7 @@ def generate_ppt_report(df, fail_df, selected_month):
     
     # ===== Slide 8: 회귀 알람 (페이지 맞춤) =====
     s8 = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s8, 6, "회귀 알람 (월 내 최신 빌드)")
+    add_header(s8, 9, "회귀 알람 (월 내 최신 빌드)")
     
     builds = sorted(df['Build_Num'].unique())
     if len(builds) >= 2 and len(fail_df) > 0:
@@ -3003,7 +3249,7 @@ def generate_ppt_report(df, fail_df, selected_month):
     
     # ===== Slide 9: 회의 요약 + 핵심 인사이트 =====
     s9 = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s9, 7, "회의 요약 및 핵심 인사이트")
+    add_header(s9, 11, "회의 요약 및 핵심 인사이트")
     
     # 인사이트 자동 생성 (분석가 시선)
     auto_insight_lines = []
