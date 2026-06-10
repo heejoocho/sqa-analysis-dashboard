@@ -2663,7 +2663,7 @@ def generate_ppt_report(df, fail_df, selected_month):
             cell.fill.solid()
             cell.fill.fore_color.rgb = bg
     
-    def add_text(slide, text, x, y, w, h, size=14, bold=False, color=None, align=None):
+    def add_text(slide, text, x, y, w, h, size=14, bold=False, color=None, align=None, italic=False):
         tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
         tf = tb.text_frame
         tf.word_wrap = True
@@ -2675,6 +2675,7 @@ def generate_ppt_report(df, fail_df, selected_month):
         run.font.name = PPT_FONT
         run.font.size = Pt(size)
         run.font.bold = bold
+        run.font.italic = italic
         if color:
             run.font.color.rgb = color
     
